@@ -1,0 +1,10 @@
+{
+  "name": "Envo — l’assistante de l’artisan",
+  "short_name": "Envo",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#1e3a8a",
+  "lang": "fr",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
