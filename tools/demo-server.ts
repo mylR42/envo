@@ -84,9 +84,59 @@ const SCENARIO: Block[][] = [
  * données) : chaque nouvelle séance le rejoue depuis le début. Les identifiants
  * d'outils reçoivent un suffixe aléatoire pour rester uniques en base.
  */
+const OVERVIEW: Block[][] = [
+  [
+    { type: 'tool_use', id: 'ov_1', name: 'if_list_quotes', input: {} },
+    { type: 'tool_use', id: 'ov_2', name: 'if_search_customers', input: { query: '' } },
+  ],
+  [
+    {
+      type: 'tool_use',
+      id: 'ov_3',
+      name: 'publier_tableau',
+      input: {
+        kpis: [
+          { cle: 'devis_en_attente', libelle: 'Devis en attente', valeur: 7, unite: 'nombre', detail: 'envoyés, sans réponse' },
+          { cle: 'montant_devis_en_attente', libelle: 'Montant en attente', valeur: 18450, unite: 'eur', detail: 'HT' },
+          { cle: 'devis_acceptes_mois', libelle: 'Devis acceptés ce mois', valeur: 4, unite: 'nombre', detail: '' },
+          { cle: 'taux_transformation', libelle: 'Taux de transformation', valeur: 46, unite: 'pourcent', detail: 'sur 90 jours' },
+          { cle: 'ca_facture_mois', libelle: 'CA facturé ce mois', valeur: 12380, unite: 'eur', detail: 'HT, 9 factures' },
+          { cle: 'factures_impayees', libelle: 'Factures impayées', valeur: 3240, unite: 'eur', detail: 'TTC, 2 factures' },
+        ],
+        devis_a_relancer: [
+          { ref: 'D-2026-0012', client: 'Martin Dupont', objet: 'Remplacement chauffe-eau', montant_ht: 1450, date: '2026-10-20', statut: 'envoyé', jours: 20 },
+          { ref: 'D-2026-0031', client: 'SCI Les Tilleuls', objet: 'Rénovation salle de bain', montant_ht: 8920, date: '2026-10-27', statut: 'envoyé', jours: 13 },
+          { ref: 'D-2026-0035', client: 'Mme Leroy', objet: 'Pompe à chaleur air-eau', montant_ht: 6200, date: '2026-11-01', statut: 'envoyé', jours: 8 },
+        ],
+        derniers_devis: [
+          { ref: 'D-2026-0041', client: 'M. Bernard', objet: 'Mise aux normes tableau', montant_ht: 1890, date: '2026-11-08', statut: 'brouillon', jours: null },
+          { ref: 'D-2026-0039', client: 'Mairie de Trélazé', objet: 'Sanitaires école', montant_ht: 12400, date: '2026-11-05', statut: 'accepté', jours: null },
+          { ref: 'D-2026-0035', client: 'Mme Leroy', objet: 'Pompe à chaleur air-eau', montant_ht: 6200, date: '2026-11-01', statut: 'envoyé', jours: 8 },
+          { ref: 'D-2026-0033', client: 'M. Petit', objet: 'Fuite sous évier', montant_ht: 180, date: '2026-10-29', statut: 'refusé', jours: null },
+        ],
+        factures_impayees: [
+          { ref: 'F-2026-0102', client: 'M. Garnier', montant_ttc: 2160, echeance: '2026-10-25', jours_retard: 15 },
+          { ref: 'F-2026-0110', client: 'Mme Roux', montant_ttc: 1080, echeance: '2026-11-15', jours_retard: null },
+        ],
+        a_venir: [
+          { date: '2026-11-10', client: 'Mairie de Trélazé', objet: 'Démarrage chantier sanitaires' },
+          { date: '2026-11-12', client: 'M. Bernard', objet: 'Visite technique tableau électrique' },
+        ],
+        manques: ['Le détail des paiements partiels n’est pas fourni par Interfast.'],
+        resume: '3 devis attendent une relance (16 570 € HT) et une facture de 2 160 € a 15 jours de retard.',
+      },
+    },
+  ],
+];
+
 const llm: Llm = {
   create: async (p) => {
     const step = p.messages.filter((m) => m.role === 'assistant').length;
+    if (JSON.stringify(p.system).includes('tableau de bord')) {
+      await new Promise((r) => setTimeout(r, 900));
+      const content = OVERVIEW[step] ?? OVERVIEW[1]!;
+      return { id: `msg_${Date.now()}`, type: 'message', role: 'assistant', model: p.model, content, stop_reason: 'tool_use', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } } as unknown as BetaMessage;
+    }
     const salt = Math.random().toString(36).slice(2, 10);
     const content = (SCENARIO[step] ?? [{ type: 'text', text: '(Démonstration) Le scénario est terminé. Ouvrez une nouvelle séance pour le rejouer — la vraie assistante, elle, répondrait à votre message.' }]).map((b) =>
       b.type === 'tool_use' ? { ...b, id: `${b.id}_${salt}` } : b,

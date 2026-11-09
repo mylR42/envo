@@ -28,6 +28,7 @@ import { DUMMY_HASH, PASSWORD_MIN, deviceLabel, hashPassword, isEmail, isUuid, n
 import { runTurn, type ActionState, type Answer, type Llm, type Pending } from './agent';
 import { SYSTEM_PROMPT, sessionContext, type ArtisanSettings, type PastSession, type RexItem } from './prompt';
 import { toView } from './view';
+import { collectOverview, OVERVIEW_TTL_MS, type Overview } from './overview';
 
 export interface Deps {
   cfg: Config;
@@ -96,6 +97,9 @@ export function createApp(deps: Deps) {
   const app = new Hono<Env>();
   const busy = new Set<string>();
   const toolsCache = new Map<string, { at: number; tools: McpTool[] }>();
+  /** Tableau de bord Interfast : EN MÉMOIRE seulement (les données métier ne vont pas en base), par compte. */
+  const overviews = new Map<string, { at: number; key: string; data: Overview }>();
+  const collecting = new Set<string>();
 
   /* ---------- Rythme : échecs par clé, débit par IP ---------- */
   const fails = new Map<string, { n: number; until: number }>();
@@ -185,6 +189,24 @@ export function createApp(deps: Deps) {
     }
   };
   const unauthorized = (c: Context) => c.json({ error: 'connexion requise' }, 401);
+
+  /**
+   * Réponse en flux (SSE) qui traverse nginx : `X-Accel-Buffering: no` (pas de
+   * mise en tampon, quelle que soit la configuration du vhost) et un signal de
+   * vie toutes les 15 s — nginx coupe une réponse muette au bout de 60 s, et un
+   * appel à Claude ou à Interfast peut durer plus.
+   */
+  const sse = (c: Context, fn: (stream: Parameters<Parameters<typeof streamSSE>[1]>[0]) => Promise<void>) => {
+    c.header('X-Accel-Buffering', 'no');
+    return streamSSE(c, async (stream) => {
+      const ping = setInterval(() => void stream.write(': ping\n\n').catch(() => {}), 15_000);
+      try {
+        await fn(stream);
+      } finally {
+        clearInterval(ping);
+      }
+    });
+  };
 
   /* ---------- Santé (lue par le déploiement : chaîne exacte) ---------- */
   app.get('/api/health', async (c) => {
@@ -704,7 +726,7 @@ export function createApp(deps: Deps) {
 
     // Réponse en flux (SSE) : l'écran voit ce que fait l'assistante pendant qu'elle travaille,
     // et une connexion qui tombe n'interrompt pas le tour — il est enregistré quand même.
-    return streamSSE(c, async (stream) => {
+    return sse(c, async (stream) => {
       try {
         const out = await work((t) => void stream.writeSSE({ event: 'status', data: t }).catch(() => {}));
         await stream.writeSSE({ event: 'done', data: JSON.stringify(out) }).catch(() => {});
@@ -713,6 +735,97 @@ export function createApp(deps: Deps) {
         await stream.writeSSE({ event: 'error', data: JSON.stringify({ error: 'L’assistante n’a pas pu répondre. Réessayez dans un instant.' }) }).catch(() => {});
       } finally {
         busy.delete(conv.id);
+      }
+    });
+  });
+
+  /* ---------- Interfast : état de la connexion et tableau de bord ---------- */
+  const host = (url: string) => {
+    try {
+      return new URL(url).host;
+    } catch {
+      return '';
+    }
+  };
+
+  /** État de la connexion : joignable ? combien d'outils ? quel délai ? quelle activité cette semaine ? */
+  app.get('/api/interfast/status', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const s = await loadSettings(u.id);
+    const week = new Date(now().getTime() - 7 * 86_400_000);
+    const stats = (
+      await db.query<{ calls: number; errors: number; avg_ms: number | null; last_ok: Date | null; last_error: Date | null }>(
+        `SELECT count(*)::int AS calls, count(*) FILTER (WHERE NOT ok)::int AS errors, round(avg(ms))::int AS avg_ms,
+                max(created_at) FILTER (WHERE ok) AS last_ok, max(created_at) FILTER (WHERE NOT ok) AS last_error
+           FROM tool_log WHERE user_id = $1 AND created_at >= $2`,
+        [u.id, week],
+      )
+    )[0]!;
+    const top = await db.query<{ tool: string; n: number }>(`SELECT tool, count(*)::int AS n FROM tool_log WHERE user_id = $1 AND created_at >= $2 GROUP BY tool ORDER BY n DESC LIMIT 5`, [u.id, week]);
+    const base = { configured: !!s.mcp_url, host: host(s.mcp_url), keyHint: s.mcp_key_hint, week: { ...stats, top } };
+    const mcp = mcpFor(s);
+    if (!mcp) return c.json({ ...base, ok: false, error: 'non configuré' });
+    const t0 = Date.now();
+    try {
+      // Toujours un vrai contact (deux petites requêtes) : c'est l'état de la connexion qu'on veut voir.
+      const tools = await toolsFor(u.id, s, mcp, true);
+      return c.json({
+        ...base,
+        ok: true,
+        latencyMs: Date.now() - t0,
+        checkedAt: now(),
+        tools: tools.map((t) => ({ name: t.name, write: isWriteTool(t) })),
+      });
+    } catch (e) {
+      return c.json({ ...base, ok: false, error: e instanceof McpError ? e.message : 'connexion impossible', checkedAt: now() });
+    }
+  });
+
+  app.get('/api/interfast/overview', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const s = await loadSettings(u.id);
+    const o = overviews.get(u.id);
+    const fresh = o && o.key === `${s.mcp_url}|${s.mcp_key_hint}` && now().getTime() - o.at < OVERVIEW_TTL_MS;
+    return c.json({ overview: fresh ? o.data : null, at: fresh ? new Date(o.at) : null, collecting: collecting.has(u.id), assistant: llm !== null });
+  });
+
+  /** Collecte (en flux SSE : « status » puis « done »). Lecture seule dans Interfast. */
+  app.post('/api/interfast/overview', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    if (!llm || !cfg.anthropic) return c.json({ error: 'assistante non configurée sur le serveur (clé Anthropic absente)' }, 503);
+    const s = await loadSettings(u.id);
+    const mcp = mcpFor(s);
+    if (!mcp) return c.json({ error: 'Interfast n’est pas connecté' }, 400);
+    if (collecting.has(u.id)) return c.json({ error: 'collecte déjà en cours' }, 409);
+    if (overRate(`overview:${u.id}`, 12, 3600_000)) return c.json({ error: 'trop d’actualisations en une heure, patientez' }, 429);
+    collecting.add(u.id);
+    const anthropic = cfg.anthropic;
+    return sse(c, async (stream) => {
+      try {
+        const tools = await toolsFor(u.id, s, mcp);
+        const data = await collectOverview({
+          llm,
+          model: anthropic.model,
+          mcp,
+          mcpTools: tools,
+          today: now().toISOString().slice(0, 10),
+          onStatus: (t) => void stream.writeSSE({ event: 'status', data: t }).catch(() => {}),
+          logTool: async (tool, ok, ms) => {
+            await db.query('INSERT INTO tool_log (user_id, tool, ok, ms) VALUES ($1, $2, $3, $4)', [u.id, tool, ok, ms]);
+          },
+        });
+        const at = now().getTime();
+        overviews.set(u.id, { at, key: `${s.mcp_url}|${s.mcp_key_hint}`, data });
+        await stream.writeSSE({ event: 'done', data: JSON.stringify({ overview: data, at: new Date(at) }) }).catch(() => {});
+      } catch (e) {
+        console.error('tableau Interfast :', (e as Error).message);
+        const msg = e instanceof McpError ? e.message : 'La lecture d’Interfast n’a pas abouti. Réessayez dans un instant.';
+        await stream.writeSSE({ event: 'error', data: JSON.stringify({ error: msg }) }).catch(() => {});
+      } finally {
+        collecting.delete(u.id);
       }
     });
   });

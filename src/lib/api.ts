@@ -81,20 +81,20 @@ export interface ConvSummary {
 export type Answer = { toolUseId: string; choice?: string; approved?: boolean };
 
 /**
- * Un tour de l'assistante : la réponse arrive en flux (SSE) — des « status »
- * pendant qu'elle travaille, puis « done » avec la conversation à jour.
+ * POST dont la réponse arrive en flux (SSE) : des « status » pendant le travail,
+ * puis « done » (le résultat) ou « error ». Les lignes « : ping » sont ignorées.
  */
-export async function sendTurn(convId: string, body: { text?: string; answers?: Answer[] }, onStatus: (s: string) => void): Promise<ConvView> {
+export async function streamPost<T>(path: string, body: unknown, onStatus: (s: string) => void, cutMsg: string): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`/api/conversations/${convId}/turn`, {
+    res = await fetch(path, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify(body),
     });
   } catch {
-    throw new ApiError('Pas de connexion au serveur. Votre message n’est pas parti.', 0);
+    throw new ApiError('Pas de connexion au serveur.', 0);
   }
   if (!res.ok || !res.body) {
     const j = (await res.json().catch(() => ({}))) as { error?: string };
@@ -110,17 +110,63 @@ export async function sendTurn(convId: string, body: { text?: string; answers?: 
     while ((i = buf.indexOf('\n\n')) >= 0) {
       const evt = buf.slice(0, i);
       buf = buf.slice(i + 2);
-      const name = /^event: (.*)$/m.exec(evt)?.[1] ?? 'message';
+      const name = /^event: (.*)$/m.exec(evt)?.[1];
+      if (!name) continue;
       const data = evt
         .split('\n')
         .filter((l) => l.startsWith('data:'))
         .map((l) => l.slice(5).replace(/^ /, ''))
         .join('\n');
       if (name === 'status') onStatus(data);
-      else if (name === 'done') return JSON.parse(data) as ConvView;
+      else if (name === 'done') return JSON.parse(data) as T;
       else if (name === 'error') throw new ApiError((JSON.parse(data) as { error: string }).error, 500);
     }
     if (done) break;
   }
-  throw new ApiError('La réponse a été coupée. Rechargez la séance : le travail fait est enregistré.', 0);
+  throw new ApiError(cutMsg, 0);
+}
+
+/** Un tour de l'assistante. */
+export const sendTurn = (convId: string, body: { text?: string; answers?: Answer[] }, onStatus: (s: string) => void) =>
+  streamPost<ConvView>(`/api/conversations/${convId}/turn`, body, onStatus, 'La réponse a été coupée. Rechargez la séance : le travail fait est enregistré.');
+
+/* ---------- Interfast : état et tableau de bord ---------- */
+
+export interface InterfastStatus {
+  configured: boolean;
+  ok: boolean;
+  error?: string;
+  host: string;
+  keyHint: string;
+  latencyMs?: number;
+  checkedAt?: string;
+  tools?: { name: string; write: boolean }[];
+  week: { calls: number; errors: number; avg_ms: number | null; last_ok: string | null; last_error: string | null; top: { tool: string; n: number }[] };
+}
+
+export interface Kpi {
+  cle: string;
+  libelle: string;
+  valeur: number | null;
+  unite: 'eur' | 'nombre' | 'pourcent';
+  detail: string;
+}
+export interface QuoteRow {
+  ref: string;
+  client: string;
+  objet: string;
+  montant_ht: number | null;
+  date: string;
+  statut: string;
+  jours: number | null;
+}
+export interface Overview {
+  kpis: Kpi[];
+  devis_a_relancer: QuoteRow[];
+  derniers_devis: QuoteRow[];
+  factures_impayees: { ref: string; client: string; montant_ttc: number | null; echeance: string; jours_retard: number | null }[];
+  a_venir: { date: string; client: string; objet: string }[];
+  manques: string[];
+  sources: string[];
+  resume: string;
 }

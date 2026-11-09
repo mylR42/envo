@@ -60,6 +60,19 @@ Boucle d'outils écrite à la main, parce qu'elle doit S'ARRÊTER pour l'artisan
 - `server/view.ts` (PUR) convertit l'historique en éléments d'écran : l'écran ne
   lit jamais le format de l'API.
 
+## Tableau de bord Interfast (`server/overview.ts`)
+
+Les noms d'outils Interfast étant inconnus d'avance, une collecte par Claude
+choisit les appels et publie par l'outil local `publier_tableau` (indicateurs,
+devis à relancer, factures impayées, derniers devis, à venir, `manques`,
+`resume`). ⚠️ **Lecture seule** : seuls les outils `!isWriteTool` sont proposés.
+⚠️ **Aucun chiffre inventé** : `null` → tiret, et `manques` le dit ; `sanitize()`
+borne tout. Résultat **en mémoire** 30 min par compte (jamais en base),
+`POST /api/interfast/overview` (SSE) pour actualiser, 12 par heure.
+`GET /api/interfast/status` : vrai contact à chaque appel (délai, outils) +
+activité de la semaine (`tool_log`). Les réponses SSE passent par `sse()` :
+`X-Accel-Buffering: no` et un ping toutes les 15 s (nginx coupe à 60 s de silence).
+
 ## REX (retours d'expérience)
 
 Table `rex` : `decision`, `preference`, `tarif`, `client`, `methode` (écrits par

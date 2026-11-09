@@ -1,5 +1,13 @@
 # Journal des versions
 
+## 0.3.0 — 09/11/2026
+
+Un vrai tableau de bord, branché sur Interfast.
+- « Mon activité dans Interfast » : résumé du jour, indicateurs (devis en attente et leur montant, devis acceptés ce mois, taux de transformation, CA facturé du mois, factures impayées), devis à relancer (un appui ouvre une séance de relance), factures impayées, derniers devis, planning des 14 jours.
+- Lu dans Interfast en LECTURE SEULE par l’assistante (aucun outil qui modifie n’est proposé), gardé 30 minutes en mémoire (rien en base), bouton « Actualiser ». Un chiffre non fourni par Interfast est un tiret, et la liste « Ce qu’Interfast ne permet pas de savoir » le dit.
+- Carte « Connexion Interfast » : état, serveur, clé, temps de réponse, outils en lecture / qui modifient, appels et erreurs de la semaine, dernier échange, outils les plus utilisés.
+- Réponses en flux protégées derrière nginx (pas de mise en tampon, signal de vie toutes les 15 s).
+
 ## 0.2.0 — 09/11/2026
 
 Icônes Phosphor partout et ergonomie revue.
