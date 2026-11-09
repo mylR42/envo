@@ -1,5 +1,13 @@
 # Journal des versions
 
+## 0.5.0 — 09/11/2026
+
+Lecture d’Interfast : plus de « network error », une vraie progression, et le temps mesuré.
+- La lecture devient une tâche du serveur : l’écran la lance puis prend des nouvelles chaque seconde. Une réponse en flux de plus d’une minute ne survivait pas toujours au réseau (« network error ») ; une coupure ne perd plus rien, et une page rechargée reprend le suivi.
+- Progression visible : barre (estimée d’après la lecture précédente), puis les étapes réelles — choix des lectures, chaque lecture Interfast avec sa durée, calcul des indicateurs avec son chronomètre. Pendant une actualisation, les chiffres restent affichés avec une barre compacte au-dessus.
+- Durée de la dernière lecture dans « Connexion Interfast » : total, temps passé chez Interfast, temps de calcul — de quoi savoir où part le temps.
+- Plus rapide : la lecture du tableau se fait sans réflexion longue (Claude Sonnet 5.5, `between_tools`).
+
 ## 0.4.5 — 09/11/2026
 
 - Lecture à voix haute réparée (« je n’entends rien ») : Chrome laisse tomber sans erreur une lecture lancée juste après une annulation, et peut perdre la fin d’une file de phrases. Les énoncés sont gardés en mémoire, l’annulation n’a lieu que si quelque chose est lu, et la lecture repart un instant après.

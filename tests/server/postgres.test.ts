@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { applySchema, connectPostgres } from '../../server/db';
-import { MCP_URL, setup, signedIn } from './helpers';
+import { collectOverview, MCP_URL, setup, signedIn } from './helpers';
 
 describe.skipIf(!process.env.PGHOST)('PostgreSQL réel', () => {
   it('séance complète : historique, attente, validation, REX', async () => {
@@ -64,10 +64,10 @@ describe.skipIf(!process.env.PGHOST)('PostgreSQL réel — tableau de bord', () 
     try {
       const c = await signedIn(env);
       await c.call('PUT', '/api/settings', { mcp_url: MCP_URL, mcp_key: 'cle-secrete' });
-      await c.call('POST', '/api/interfast/overview');
+      await collectOverview(c);
       const r = (await db.query<{ t: string }>('SELECT jsonb_typeof(overview_recipe) AS t FROM settings'))[0]!;
       expect(r.t).toBe('array');
-      await c.call('POST', '/api/interfast/overview');
+      await collectOverview(c);
       expect(env.interfast.calls.map((x) => x.name)).toEqual(['list_quotes', 'list_quotes']);
       expect(env.scripted.calls).toBe(3);
     } finally {

@@ -132,7 +132,19 @@ export const sendTurn = (convId: string, body: { text?: string; answers?: Answer
 
 /* ---------- Interfast : état et tableau de bord ---------- */
 
+/** Suivi d'une lecture d'Interfast (server/app.ts, tâche de fond). */
+export interface ReadJob {
+  state: 'en_cours' | 'fini' | 'erreur';
+  phase: 'interfast' | 'calcul';
+  elapsedMs: number;
+  estimateMs: number | null;
+  calls: { id: number; label: string; state: 'en_cours' | 'ok' | 'erreur'; ms?: number }[];
+  calcMs: number;
+  error?: string;
+}
+
 export interface InterfastStatus {
+  lastRead?: { ms: number; interfast_ms: number; calcul_ms: number; calls: number; at: string } | null;
   configured: boolean;
   ok: boolean;
   error?: string;

@@ -51,7 +51,7 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { api, streamPost, type ConvSummary, type InterfastStatus, type Kpi, type Overview, type User } from '../lib/api';
+import { api, type ConvSummary, type InterfastStatus, type Kpi, type Overview, type ReadJob, type User } from '../lib/api';
 import { euros, relDate, STATUS_LABEL, toolLabel } from '../lib/format';
 import { canListen, canSpeak, speak, stopSpeaking } from '../lib/voice';
 import { BarList, ChartCard, ColumnChart, DataTable, fullEuros, SegmentBar, type Row } from '../ui/Charts';
@@ -189,6 +189,93 @@ function DailyBrief({ text, at }: { text: string; at: string | null }) {
   );
 }
 
+const secs = (ms: number) => `${Math.max(0, Math.round(ms / 1000))} s`;
+
+/**
+ * Progression d'une lecture d'Interfast : barre (estimée d'après la lecture
+ * précédente, jamais 100 % avant la fin), puis les étapes réelles — chaque
+ * appel Interfast avec sa durée, puis le calcul par l'assistante.
+ */
+function Step({ n, state, label, extra, time, children }: { n: number; state: 'todo' | 'on' | 'done'; label: string; extra?: string; time?: string; children?: ReactNode }) {
+  return (
+    <li className={state === 'todo' ? '' : `is-${state}`}>
+      <span className="readprog__dot" aria-hidden="true">
+        {state === 'done' ? <CheckCircle size={18} weight="bold" /> : state === 'on' ? <span className="spinner" /> : <span className="readprog__num">{n}</span>}
+      </span>
+      <span>
+        {label} {extra && <span className="muted">{extra}</span>}
+        {time && <span className="muted"> · {time}</span>}
+        {children}
+      </span>
+    </li>
+  );
+}
+
+function ReadProgress({ job, compact }: { job: ReadJob; compact: boolean }) {
+  // Une horloge locale fait avancer la barre entre deux nouvelles du serveur.
+  const [tick, setTick] = useState(0);
+  const base = useRef({ at: Date.now(), elapsed: job.elapsedMs });
+  useEffect(() => {
+    base.current = { at: Date.now(), elapsed: job.elapsedMs };
+  }, [job.elapsedMs]);
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 250);
+    return () => clearInterval(t);
+  }, []);
+  void tick;
+  const elapsed = base.current.elapsed + (Date.now() - base.current.at);
+  const est = job.estimateMs;
+  const pct = est ? Math.min(95, (elapsed / est) * 100) : null;
+  const done = job.calls.filter((c) => c.state !== 'en_cours').length;
+  const calc = job.phase === 'calcul';
+  // Première lecture : l'assistante choisit d'abord QUOI lire (aucun appel encore).
+  const preparing = calc && job.calls.length === 0;
+  const reading = job.calls.some((c) => c.state === 'en_cours');
+  const readDone = job.calls.length > 0 && !reading;
+  const computing = calc && job.calls.length > 0 && !reading;
+  return (
+    <section className={`readprog card${compact ? ' readprog--compact' : ''}`} aria-live="polite" aria-label="Lecture d’Interfast en cours">
+      <div className="readprog__top">
+        <strong>{preparing ? 'L’assistante prépare la lecture d’Interfast…' : computing ? 'L’assistante calcule vos indicateurs…' : 'Lecture d’Interfast…'}</strong>
+        <span className="muted">
+          {secs(elapsed)}
+          {est ? ` / ≈ ${secs(est)}` : ''}
+        </span>
+      </div>
+      <div className={`readprog__bar${pct === null ? ' is-indeterminate' : ''}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct === null ? undefined : Math.round(pct)}>
+        <span style={pct === null ? undefined : { width: `${pct}%` }} />
+      </div>
+      {!compact && (
+        <ol className="readprog__steps">
+          {/* Sans lectures mémorisées, l'assistante choisit d'abord quoi lire : une étape de plus, en tête. */}
+          {(preparing || job.estimateMs === null) && (
+            <Step n={1} state={preparing ? 'on' : 'done'} label="Choix des lectures à faire" time={preparing ? secs(job.calcMs) : undefined} />
+          )}
+          <Step n={preparing || job.estimateMs === null ? 2 : 1} state={readDone ? 'done' : reading ? 'on' : 'todo'} label="Lecture d’Interfast" extra={job.calls.length ? `${done}/${job.calls.length}` : undefined}>
+            {job.calls.length > 0 && (
+              <ul className="readprog__calls">
+                {job.calls.map((c) => (
+                  <li key={c.id} className={`is-${c.state}`}>
+                    {c.state === 'en_cours' ? <span className="spinner spinner--sm" /> : c.state === 'ok' ? <CheckCircle size={14} /> : <WarningCircle size={14} />}
+                    {toolLabel(c.label)}
+                    {c.ms !== undefined && <span className="muted"> · {(c.ms / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Step>
+          <Step n={preparing || job.estimateMs === null ? 3 : 2} state={computing ? 'on' : 'todo'} label="Calcul des indicateurs et des graphiques" time={computing ? secs(job.calcMs) : undefined} />
+        </ol>
+      )}
+      {compact && (
+        <p className="readprog__line muted">
+          {computing ? `Interfast lu (${done} lecture${done > 1 ? 's' : ''}) · calcul ${secs(job.calcMs)}` : preparing ? 'Choix des lectures' : `Interfast : ${done}/${job.calls.length || '…'}`} · les chiffres affichés restent ceux de la dernière lecture.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function Priority({ tone, icon, value, label, href, onClick }: { tone: 'warn' | 'late' | 'info'; icon: ReactNode; value: string; label: string; href?: string; onClick?(): void }) {
   const inner = (
     <>
@@ -221,27 +308,59 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
     const c = store.get<OvState>(cacheKey);
     return c?.overview ? { ...c, stale: true } : null;
   });
-  const [collecting, setCollecting] = useState('');
+  const [job, setJob] = useState<ReadJob | null>(null);
+  const pollId = useRef(0);
+  const collecting = job?.state === 'en_cours';
   const [ovError, setOvError] = useState('');
   const [error, setError] = useState('');
   const [view, setView] = useState<'graph' | 'table'>(() => (store.get<string>('envo.vue') === 'table' ? 'table' : 'graph'));
   const started = useRef(false);
 
-  const collect = useCallback(async () => {
-    setOvError('');
-    setCollecting('Lecture d’Interfast…');
-    try {
-      const r = await streamPost<{ overview: Overview; at: string }>('/api/interfast/overview', {}, setCollecting, 'La lecture a été coupée. Réessayez.');
-      const next = { overview: r.overview, at: r.at, stale: false };
-      setOv(next);
-      store.set(cacheKey, next);
-      api.get<InterfastStatus>('/api/interfast/status').then(setStatus, () => {});
-    } catch (e) {
-      setOvError((e as Error).message);
-    } finally {
-      setCollecting('');
+  /**
+   * Suit la lecture d'Interfast, qui tourne sur le serveur : une question par
+   * seconde. Une coupure de réseau ne perd rien (la lecture continue, le suivi
+   * reprend à la question suivante) ; on n'abandonne qu'après 30 s sans réponse.
+   */
+  const follow = useCallback(async () => {
+    const mine = ++pollId.current;
+    let misses = 0;
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 1000));
+      if (mine !== pollId.current) return;
+      try {
+        const p = await api.get<{ job: ReadJob | null; overview: Overview | null; at: string | null }>('/api/interfast/overview/progress');
+        misses = 0;
+        setJob(p.job);
+        if (!p.job || p.job.state === 'en_cours') continue;
+        if (p.job.state === 'fini' && p.overview) {
+          const next = { overview: p.overview, at: p.at, stale: false };
+          setOv(next);
+          store.set(cacheKey, next);
+          api.get<InterfastStatus>('/api/interfast/status').then(setStatus, () => {});
+        } else if (p.job.state === 'erreur') setOvError(p.job.error ?? 'La lecture d’Interfast n’a pas abouti.');
+        setJob(null);
+        return;
+      } catch {
+        if (++misses >= 30) {
+          setOvError('Plus de nouvelles du serveur. Vérifiez la connexion, puis « Actualiser ».');
+          setJob(null);
+          return;
+        }
+      }
     }
   }, [cacheKey]);
+
+  const collect = useCallback(async () => {
+    setOvError('');
+    try {
+      const r = await api.post<{ job: ReadJob }>('/api/interfast/overview');
+      setJob(r.job);
+      void follow();
+    } catch (e) {
+      setOvError((e as Error).message);
+    }
+  }, [follow]);
+  useEffect(() => () => void pollId.current++, []);
 
   useEffect(() => {
     api.get<Dash>('/api/dashboard').then(setD, (e: Error) => setError(e.message));
@@ -261,12 +380,13 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
     );
     // Rien en mémoire, ou plus de 30 min : la lecture part toute seule, l'écran garde ce qu'il montre.
     void Promise.all([st, o]).then(([s, r]) => {
-      if (!started.current && assistant && s?.ok && r && (!r.overview || r.stale) && !r.collecting) {
-        started.current = true;
-        void collect();
-      }
+      if (started.current || !assistant || !s?.ok || !r) return;
+      started.current = true;
+      // Une lecture tourne déjà (autre onglet, page rechargée) : on reprend son suivi.
+      if (r.collecting) void follow();
+      else if (!r.overview || r.stale) void collect();
     });
-  }, [assistant, collect, cacheKey]);
+  }, [assistant, collect, follow, cacheKey]);
 
   const switchView = (v: 'graph' | 'table') => {
     setView(v);
@@ -355,16 +475,12 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
               <ChartBar size={22} weight="light" /> Mon activité
             </h2>
             <span className="biz__when">
-              {collecting ? (
-                <>
-                  <span className="dots" aria-hidden="true" /> {collecting}
-                </>
-              ) : ov?.at ? (
+              {collecting ? null : ov?.at ? (
                 `Interfast · ${new Date(ov.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
               ) : null}
             </span>
             {assistant && (
-              <button className="icon-btn icon-btn--sm" onClick={collect} disabled={!!collecting} aria-label="Actualiser depuis Interfast" title="Actualiser depuis Interfast">
+              <button className="icon-btn icon-btn--sm" onClick={collect} disabled={collecting} aria-label="Actualiser depuis Interfast" title="Actualiser depuis Interfast">
                 <ArrowClockwise size={18} className={collecting ? 'spin' : ''} />
               </button>
             )}
@@ -385,6 +501,7 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
               </button>
             </div>
           )}
+          {job && collecting && <ReadProgress job={job} compact={!!o} />}
           {!o && collecting && (
             <div className="kpis" aria-busy="true">
               {[0, 1, 2, 3, 4, 5].map((i) => (
@@ -653,6 +770,14 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
                     </dd>
                   </div>
                 </>
+              )}
+              {status.lastRead && (
+                <div>
+                  <dt>Dernière lecture</dt>
+                  <dd>
+                    {secs(status.lastRead.ms)} — Interfast {secs(status.lastRead.interfast_ms)} ({status.lastRead.calls} lecture{status.lastRead.calls > 1 ? 's' : ''}), calcul {secs(status.lastRead.calcul_ms)}
+                  </dd>
+                </div>
               )}
               <div>
                 <dt>Cette semaine</dt>

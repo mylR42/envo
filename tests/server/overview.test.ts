@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { sanitize } from '../../server/overview';
-import { MCP_URL, setup, signedIn } from './helpers';
+import { collectOverview, MCP_URL, setup, signedIn } from './helpers';
 
 const PUBLISHED = {
   series: {
@@ -37,7 +37,7 @@ describe('tableau de bord Interfast', () => {
     await c.call('PUT', '/api/settings', { mcp_url: MCP_URL, mcp_key: 'cle-secrete' });
     expect((await c.call('GET', '/api/interfast/overview')).json.overview).toBeNull();
 
-    const r = await c.call('POST', '/api/interfast/overview');
+    const r = await collectOverview(c);
     expect(r.status).toBe(200);
     expect(r.json.overview.devis_a_relancer[0]).toMatchObject({ ref: 'D-2026-0012', montant_ht: 1450 });
     expect(r.json.overview.kpis[1].valeur).toBeNull();
@@ -72,13 +72,13 @@ describe('tableau de bord Interfast', () => {
     });
     const c = await signedIn(env);
     await c.call('PUT', '/api/settings', { mcp_url: MCP_URL, mcp_key: 'cle-secrete' });
-    const first = await c.call('POST', '/api/interfast/overview');
+    const first = await collectOverview(c);
     expect(first.json.overview.series.ca_mensuel).toHaveLength(2);
     expect(env.scripted.calls).toBe(2);
     const row = (await env.db.query<{ overview_recipe: unknown }>('SELECT overview_recipe FROM settings'))[0]!;
     expect(row.overview_recipe).toEqual([{ tool: 'list_quotes', args: { status: 'sent' } }]);
     // Deuxième collecte : l'appel part AVANT Claude, qui publie au premier passage.
-    await c.call('POST', '/api/interfast/overview');
+    await collectOverview(c);
     expect(env.scripted.calls).toBe(3);
     expect(env.interfast.calls.map((x) => x.name)).toEqual(['list_quotes', 'list_quotes']);
     const intro = JSON.stringify(env.scripted.requests[2]!.messages[0]);
@@ -91,11 +91,39 @@ describe('tableau de bord Interfast', () => {
     expect((await env.db.query<{ overview_recipe: unknown }>('SELECT overview_recipe FROM settings'))[0]!.overview_recipe).toBeNull();
   });
 
+  it('progression : appels Interfast un par un, calcul, durée mémorisée pour estimer la suivante', async () => {
+    const env = await setup({
+      script: [
+        [{ type: 'tool_use', id: 'g1', name: 'if_list_quotes', input: {} }],
+        [{ type: 'tool_use', id: 'g2', name: 'publier_tableau', input: PUBLISHED }],
+        [{ type: 'tool_use', id: 'g3', name: 'publier_tableau', input: PUBLISHED }],
+      ],
+    });
+    const c = await signedIn(env);
+    await c.call('PUT', '/api/settings', { mcp_url: MCP_URL, mcp_key: 'cle-secrete' });
+    // POST répond tout de suite (202), sans attendre la fin.
+    const start = await c.call('POST', '/api/interfast/overview');
+    expect(start.status).toBe(202);
+    expect(start.json.job).toMatchObject({ state: 'en_cours', estimateMs: null });
+    const done = await collectOverview(c);
+    expect(done.json.job.state).toBe('fini');
+    expect(done.json.job.calls).toEqual([expect.objectContaining({ label: 'list_quotes', state: 'ok' })]);
+    expect(done.json.overview.resume).toBe('Un devis à relancer.');
+    // Durée gardée : la lecture suivante a une estimation, l'état de la connexion la montre.
+    const st = await c.call('GET', '/api/interfast/status');
+    expect(st.json.lastRead).toMatchObject({ calls: 1 });
+    const again = await c.call('POST', '/api/interfast/overview');
+    expect(typeof again.json.job.estimateMs).toBe('number');
+    await collectOverview(c);
+    // Claude Sonnet 5.5 : sans réflexion longue.
+    expect(env.scripted.requests.at(-1)!.thinking).toEqual({ type: 'between_tools' });
+  });
+
   it('un autre compte ne voit pas le tableau', async () => {
     const env = await setup({ script: [[{ type: 'tool_use', id: 'o2', name: 'publier_tableau', input: PUBLISHED }]] });
     const a = await signedIn(env, 'a@example.fr');
     await a.call('PUT', '/api/settings', { mcp_url: MCP_URL, mcp_key: 'cle-secrete' });
-    await a.call('POST', '/api/interfast/overview');
+    await collectOverview(a);
     const b = await signedIn(env, 'b@example.fr');
     expect((await b.call('GET', '/api/interfast/overview')).json.overview).toBeNull();
   });
@@ -108,9 +136,9 @@ describe('tableau de bord Interfast', () => {
       ],
     });
     const c = await signedIn(env);
-    expect((await c.call('POST', '/api/interfast/overview')).status).toBe(400);
+    expect((await collectOverview(c)).status).toBe(400);
     await c.call('PUT', '/api/settings', { mcp_url: MCP_URL, mcp_key: 'cle-secrete' });
-    await c.call('POST', '/api/interfast/overview');
+    await collectOverview(c);
     // L'outil d'écriture demandé n'existe pas pour la collecte : jamais exécuté.
     expect(env.interfast.calls).toEqual([]);
     expect(JSON.stringify(env.scripted.requests[1]!.messages.at(-1))).toContain('Outil indisponible');

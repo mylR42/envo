@@ -68,7 +68,12 @@ devis à relancer, factures impayées, derniers devis, à venir, `manques`,
 `resume`). ⚠️ **Lecture seule** : seuls les outils `!isWriteTool` sont proposés.
 ⚠️ **Aucun chiffre inventé** : `null` → tiret, et `manques` le dit ; `sanitize()`
 borne tout. Résultat **en mémoire** 30 min par compte (jamais en base),
-`POST /api/interfast/overview` (SSE) pour actualiser, 12 par heure.
+⚠️ **La lecture est une TÂCHE du serveur, pas un flux** (0.5.0, « network
+error » le 09/11/2026) : `POST /api/interfast/overview` la lance et répond 202
+tout de suite ; l'écran suit `GET /api/interfast/overview/progress` chaque
+seconde (appels un par un, phase, `estimateMs` = durée de la précédente,
+`settings.overview_stats`). 12 lectures par heure. Sonnet 5.5 y tourne en
+`thinking: between_tools`.
 ⚠️ **Vitesse** (20 s et plus mesurés sur un vrai compte le 09/11/2026) : la
 « recette » (`settings.overview_recipe` : outils + arguments de la dernière
 collecte, aucune donnée métier) est REJOUÉE en parallèle avant Claude, qui n'a

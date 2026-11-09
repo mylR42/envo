@@ -153,3 +153,15 @@ export async function signedIn(env: Awaited<ReturnType<typeof setup>>, email = '
   if (r.status !== 200) throw new Error(`inscription : ${JSON.stringify(r.json)}`);
   return c;
 }
+
+/** Lance la lecture du tableau de bord et la suit jusqu'au bout, comme l'écran (POST puis GET …/progress). */
+export async function collectOverview(c: ReturnType<typeof client>) {
+  const start = await c.call('POST', '/api/interfast/overview');
+  if (start.status !== 202) return start;
+  for (let i = 0; i < 200; i++) {
+    const p = await c.call('GET', '/api/interfast/overview/progress');
+    if (p.json.job?.state !== 'en_cours') return p;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error('lecture sans fin');
+}

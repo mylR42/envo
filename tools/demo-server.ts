@@ -163,7 +163,8 @@ const llm: Llm = {
   create: async (p) => {
     const step = p.messages.filter((m) => m.role === 'assistant').length;
     if (JSON.stringify(p.system).includes('tableau de bord')) {
-      await new Promise((r) => setTimeout(r, 900));
+      // Un peu de lenteur, pour voir la progression comme sur un vrai compte.
+      await new Promise((r) => setTimeout(r, step === 0 ? 1500 : 4000));
       const content = OVERVIEW[step] ?? OVERVIEW[1]!;
       return { id: `msg_${Date.now()}`, type: 'message', role: 'assistant', model: p.model, content, stop_reason: 'tool_use', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } } as unknown as BetaMessage;
     }

@@ -158,6 +158,8 @@ export const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS tool_log_user ON tool_log(user_id, created_at DESC)`,
   // Tableau de bord (09/11/2026) : la « recette » des appels Interfast de la dernière collecte (outils + arguments, aucune donnée métier).
   `ALTER TABLE settings ADD COLUMN IF NOT EXISTS overview_recipe jsonb`,
+  // Durée de la dernière lecture (total, Interfast, calcul) : estimation de la barre de progression et diagnostic de lenteur.
+  `ALTER TABLE settings ADD COLUMN IF NOT EXISTS overview_stats jsonb`,
 ];
 
 export async function applySchema(db: Db): Promise<void> {

@@ -765,7 +765,8 @@ export function createApp(deps: Deps) {
       )
     )[0]!;
     const top = await db.query<{ tool: string; n: number }>(`SELECT tool, count(*)::int AS n FROM tool_log WHERE user_id = $1 AND created_at >= $2 GROUP BY tool ORDER BY n DESC LIMIT 5`, [u.id, week]);
-    const base = { configured: !!s.mcp_url, host: host(s.mcp_url), keyHint: s.mcp_key_hint, week: { ...stats, top } };
+    const last = (await db.query<{ overview_stats: unknown }>('SELECT overview_stats FROM settings WHERE user_id = $1', [u.id]))[0]?.overview_stats ?? null;
+    const base = { configured: !!s.mcp_url, host: host(s.mcp_url), keyHint: s.mcp_key_hint, week: { ...stats, top }, lastRead: last };
     const mcp = mcpFor(s);
     if (!mcp) return c.json({ ...base, ok: false, error: 'non configuré' });
     const t0 = Date.now();
@@ -800,7 +801,49 @@ export function createApp(deps: Deps) {
     });
   });
 
-  /** Collecte (en flux SSE : « status » puis « done »). Lecture seule dans Interfast. */
+  /*
+   * Collecte du tableau de bord : une TÂCHE qui tourne sur le serveur (09/11/2026 :
+   * « network error » — une réponse en flux de plus d'une minute ne survit pas
+   * toujours au Wi-Fi, au mode veille ou à un proxy). `POST` la lance et répond
+   * tout de suite ; l'écran suit `GET …/progress` chaque seconde : appels
+   * Interfast un par un, calcul, estimation d'après la lecture précédente. Une
+   * coupure ne perd rien : la tâche continue, l'écran reprend le suivi.
+   */
+  type JobCall = { id: number; label: string; state: 'en_cours' | 'ok' | 'erreur'; ms?: number };
+  type Job = {
+    startedAt: number;
+    state: 'en_cours' | 'fini' | 'erreur';
+    phase: 'interfast' | 'calcul';
+    calls: JobCall[];
+    calcMs: number;
+    calcSince: number | null;
+    estimateMs: number | null;
+    error?: string;
+    endedAt?: number;
+  };
+  const jobs = new Map<string, Job>();
+  type Stats = { ms: number; interfast_ms: number; calcul_ms: number; calls: number; at: string };
+
+  const jobView = (j: Job | undefined) =>
+    j && {
+      state: j.state,
+      phase: j.phase,
+      elapsedMs: (j.endedAt ?? Date.now()) - j.startedAt,
+      estimateMs: j.estimateMs,
+      calls: j.calls,
+      calcMs: j.calcMs + (j.calcSince ? Date.now() - j.calcSince : 0),
+      error: j.error,
+    };
+
+  app.get('/api/interfast/overview/progress', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const j = jobs.get(u.id);
+    const o = overviews.get(u.id);
+    return c.json({ job: jobView(j) ?? null, overview: j?.state === 'fini' && o ? o.data : null, at: j?.state === 'fini' && o ? new Date(o.at) : null });
+  });
+
+  /** Lance la lecture d'Interfast (lecture seule) et répond aussitôt. */
   app.post('/api/interfast/overview', async (c) => {
     const u = c.get('user');
     if (!u) return unauthorized(c);
@@ -808,38 +851,64 @@ export function createApp(deps: Deps) {
     const s = await loadSettings(u.id);
     const mcp = mcpFor(s);
     if (!mcp) return c.json({ error: 'Interfast n’est pas connecté' }, 400);
-    if (collecting.has(u.id)) return c.json({ error: 'collecte déjà en cours' }, 409);
+    if (collecting.has(u.id)) return c.json({ job: jobView(jobs.get(u.id)) }, 202);
     if (overRate(`overview:${u.id}`, 12, 3600_000)) return c.json({ error: 'trop d’actualisations en une heure, patientez' }, 429);
     collecting.add(u.id);
     const anthropic = cfg.anthropic;
-    return sse(c, async (stream) => {
+    const prev = (await db.query<{ overview_recipe: RecipeCall[] | null; overview_stats: Stats | null }>('SELECT overview_recipe, overview_stats FROM settings WHERE user_id = $1', [u.id]))[0];
+    const job: Job = { startedAt: Date.now(), state: 'en_cours', phase: 'interfast', calls: [], calcMs: 0, calcSince: null, estimateMs: prev?.overview_stats?.ms ?? null };
+    jobs.set(u.id, job);
+
+    void (async () => {
       try {
         const tools = await toolsFor(u.id, s, mcp);
-        const recipeRow = (await db.query<{ overview_recipe: RecipeCall[] | null }>('SELECT overview_recipe FROM settings WHERE user_id = $1', [u.id]))[0];
         const { overview: data, recipe } = await collectOverview({
           llm,
           model: anthropic.overviewModel,
+          // Sonnet 5.5 : pas de réflexion longue pour un calcul de tableau de bord (la vitesse compte).
+          thinking: /^claude-sonnet-5-5/.test(anthropic.overviewModel) ? { type: 'between_tools' } : undefined,
           mcp,
           mcpTools: tools,
-          recipe: Array.isArray(recipeRow?.overview_recipe) ? recipeRow.overview_recipe : [],
+          recipe: Array.isArray(prev?.overview_recipe) ? prev.overview_recipe : [],
           today: now().toISOString().slice(0, 10),
-          onStatus: (t) => void stream.writeSSE({ event: 'status', data: t }).catch(() => {}),
+          onCall: (e) => {
+            const k = job.calls.findIndex((x) => x.id === e.id);
+            const row = { id: e.id, label: e.label, state: e.state, ms: e.ms };
+            if (k >= 0) job.calls[k] = row;
+            else job.calls.push(row);
+          },
+          onCalc: (e) => {
+            if (e.state === 'en_cours') {
+              job.phase = 'calcul';
+              job.calcSince = Date.now();
+            } else {
+              job.calcMs += e.ms ?? 0;
+              job.calcSince = null;
+            }
+          },
           logTool: async (tool, ok, ms) => {
             await db.query('INSERT INTO tool_log (user_id, tool, ok, ms) VALUES ($1, $2, $3, $4)', [u.id, tool, ok, ms]);
           },
         });
         const at = now().getTime();
         overviews.set(u.id, { at, key: `${s.mcp_url}|${s.mcp_key_hint}`, data });
+        job.endedAt = Date.now();
+        const total = job.endedAt - job.startedAt;
+        // Le temps passé à attendre Interfast : appels en parallèle, donc la plus longue de chaque vague ≈ total − calcul.
+        const stats: Stats = { ms: total, calcul_ms: job.calcMs, interfast_ms: Math.max(0, total - job.calcMs), calls: job.calls.length, at: new Date(at).toISOString() };
+        await db.query('UPDATE settings SET overview_stats = $2::text::jsonb WHERE user_id = $1', [u.id, JSON.stringify(stats)]);
         if (recipe.length) await db.query('UPDATE settings SET overview_recipe = $2::text::jsonb WHERE user_id = $1', [u.id, JSON.stringify(recipe)]);
-        await stream.writeSSE({ event: 'done', data: JSON.stringify({ overview: data, at: new Date(at) }) }).catch(() => {});
+        job.state = 'fini';
       } catch (e) {
         console.error('tableau Interfast :', (e as Error).message);
-        const msg = e instanceof McpError ? e.message : 'La lecture d’Interfast n’a pas abouti. Réessayez dans un instant.';
-        await stream.writeSSE({ event: 'error', data: JSON.stringify({ error: msg }) }).catch(() => {});
+        job.state = 'erreur';
+        job.endedAt = Date.now();
+        job.error = e instanceof McpError ? e.message : 'La lecture d’Interfast n’a pas abouti. Réessayez dans un instant.';
       } finally {
         collecting.delete(u.id);
       }
-    });
+    })();
+    return c.json({ job: jobView(job) }, 202);
   });
 
   /* ---------- Tableau de bord ---------- */

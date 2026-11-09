@@ -16,7 +16,7 @@
  *   résultat vit en MÉMOIRE, 30 minutes, par compte.
  * - Budget : 10 étapes au plus, effort `low` ; une collecte ratée le dit.
  */
-import type { BetaContentBlockParam, BetaMessageParam, BetaTool, BetaToolResultBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
+import type { BetaContentBlockParam, BetaMessageParam, BetaThinkingConfigParam, BetaTool, BetaToolResultBlockParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import { modelName, type Llm } from './agent';
 import { isWriteTool, McpError, type McpClient, type McpTool } from './mcp';
 
@@ -263,7 +263,12 @@ export interface CollectDeps {
   mcpTools: McpTool[];
   today: string;
   recipe?: RecipeCall[];
+  /** Pour Claude Sonnet 5.5 : `between_tools` (pas de réflexion longue — c'est du calcul, la vitesse compte). */
+  thinking?: BetaThinkingConfigParam;
   onStatus?(t: string): void;
+  /** Suivi pas à pas, pour la barre de progression de l'écran. */
+  onCall?(e: { id: number; tool: string; label: string; state: 'en_cours' | 'ok' | 'erreur'; ms?: number }): void;
+  onCalc?(e: { state: 'en_cours' | 'fini'; ms?: number }): void;
   logTool(tool: string, ok: boolean, ms: number): Promise<void>;
 }
 
@@ -281,11 +286,16 @@ export async function collectOverview(d: CollectDeps): Promise<{ overview: Overv
   const used: RecipeCall[] = [];
   const key = (c: RecipeCall) => `${c.tool}|${JSON.stringify(c.args)}`;
 
+  let callId = 0;
   const call = async (t: McpTool, args: Record<string, unknown>) => {
-    d.onStatus?.(`Interfast : ${t.annotations?.title ?? t.title ?? t.name}…`);
+    const label = t.annotations?.title ?? t.title ?? t.name;
+    const id = ++callId;
+    d.onStatus?.(`Interfast : ${label}…`);
+    d.onCall?.({ id, tool: t.name, label, state: 'en_cours' });
     const t0 = Date.now();
     try {
       const r = await d.mcp.callTool(t.name, args);
+      d.onCall?.({ id, tool: t.name, label, state: r.isError ? 'erreur' : 'ok', ms: Date.now() - t0 });
       await d.logTool(t.name, !r.isError, Date.now() - t0);
       if (!r.isError) {
         sources.push(t.name);
@@ -293,6 +303,7 @@ export async function collectOverview(d: CollectDeps): Promise<{ overview: Overv
       }
       return r;
     } catch (e) {
+      d.onCall?.({ id, tool: t.name, label, state: 'erreur', ms: Date.now() - t0 });
       await d.logTool(t.name, false, Date.now() - t0);
       return { text: e instanceof McpError ? e.message : 'erreur', isError: true };
     }
@@ -313,6 +324,8 @@ export async function collectOverview(d: CollectDeps): Promise<{ overview: Overv
   // 2. Claude complète si besoin, puis publie.
   for (let step = 0; step < OVERVIEW_MAX_STEPS; step++) {
     d.onStatus?.(step === 0 && !replay.length ? 'Lecture d’Interfast…' : 'Calcul des indicateurs…');
+    d.onCalc?.({ state: 'en_cours' });
+    const c0 = Date.now();
     const res = await d.llm.create({
       model: d.model,
       max_tokens: 16000,
@@ -320,8 +333,10 @@ export async function collectOverview(d: CollectDeps): Promise<{ overview: Overv
       tools,
       tool_choice: { type: 'auto' },
       output_config: { effort: 'low' },
+      ...(d.thinking ? { thinking: d.thinking } : {}),
       messages,
     });
+    d.onCalc?.({ state: 'fini', ms: Date.now() - c0 });
     messages.push({ role: 'assistant', content: res.content as BetaContentBlockParam[] });
     const uses = res.content.filter((b) => b.type === 'tool_use');
     const publish = uses.find((b) => b.name === PUBLISH_TOOL.name);
