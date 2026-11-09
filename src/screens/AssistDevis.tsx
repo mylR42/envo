@@ -16,10 +16,15 @@
 import {
   ArrowLeft,
   Brain,
+  CaretRight,
   Check,
+  ChatCircleDots,
   CheckCircle,
   ClipboardText,
-  Ear,
+  FlagCheckered,
+  Headset,
+  Hourglass,
+  Spinner,
   FileText,
   MagnifyingGlass,
   Microphone,
@@ -37,9 +42,10 @@ import {
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { go } from '../App';
 import { api, sendTurn, type Answer, type ConvSummary, type ConvView, type ViewItem } from '../lib/api';
-import { euros, relDate, STATUS_LABEL, toolLabel, totals } from '../lib/format';
+import { euros, fieldLabel, relDate, STATUS_LABEL, toolLabel, totals } from '../lib/format';
 import { canListen, canSpeak, listen, matchOption, speak, stopSpeaking, voiceDecision, type Listening } from '../lib/voice';
 import { Markdown } from '../ui/Markdown';
+import { PageHead } from '../ui/PageHead';
 import { Popin } from '../ui/Popin';
 
 const store = {
@@ -104,15 +110,17 @@ function SessionList({ assistant, start, onStarted }: { assistant: boolean; star
 
   return (
     <div className="page">
-      <header className="page__head page__head--row">
-        <div>
-          <h1>AssistDevis</h1>
-          <p className="muted">Vos séances avec l’assistante. Une séance en attente reprend là où vous l’avez laissée.</p>
-        </div>
-        <button className="btn btn--primary" onClick={create} disabled={busy || !assistant}>
-          <Plus size={18} /> Nouvelle séance
-        </button>
-      </header>
+      <PageHead
+        icon={ChatCircleDots}
+        title="AssistDevis"
+        actions={
+          <button className="btn btn--primary" onClick={create} disabled={busy || !assistant}>
+            <Plus size={18} /> Nouvelle séance
+          </button>
+        }
+      >
+        Vos séances avec l’assistante. Une séance en attente reprend là où vous l’avez laissée.
+      </PageHead>
       {!assistant && <p className="alert alert--warn">L’assistante n’est pas activée sur le serveur (clé Anthropic absente).</p>}
       {error && <p className="alert alert--error">{error}</p>}
       {list && list.length === 0 && (
@@ -126,11 +134,17 @@ function SessionList({ assistant, start, onStarted }: { assistant: boolean; star
           {list.map((c) => (
             <li key={c.id} className="list__row">
               <a href={`#/devis/${c.id}`}>
-                <span className="list__title">{c.title || 'Séance sans titre'}</span>
-                <span className="list__meta">
-                  {c.waiting ? <span className="badge badge--warn">À votre tour</span> : <span className={`badge badge--${c.status}`}>{STATUS_LABEL[c.status] ?? c.status}</span>}
-                  {relDate(c.updated_at)}
+                <span className={`list__icon list__icon--${c.waiting ? 'warn' : c.status}`} aria-hidden="true">
+                  {c.waiting ? <Hourglass size={20} /> : c.status === 'devis_cree' ? <FileText size={20} /> : <ChatCircleDots size={20} />}
                 </span>
+                <span className="list__body">
+                  <span className="list__title">{c.title || 'Séance sans titre'}</span>
+                  <span className="list__meta">
+                    {c.waiting ? <span className="badge badge--warn">À votre tour</span> : <span className={`badge badge--${c.status}`}>{STATUS_LABEL[c.status] ?? c.status}</span>}
+                    {relDate(c.updated_at)}
+                  </span>
+                </span>
+                <CaretRight size={18} className="list__go" aria-hidden="true" />
               </a>
               <button className="icon-btn" aria-label="Supprimer la séance" onClick={() => setToDelete(c)}>
                 <Trash size={18} />
@@ -148,6 +162,14 @@ function SessionList({ assistant, start, onStarted }: { assistant: boolean; star
       )}
     </div>
   );
+}
+
+/** Icône d'état d'une séance : la même partout (liste, en-tête). */
+export function StatusIcon({ status, waiting }: { status: string; waiting?: boolean }) {
+  if (waiting) return <Hourglass size={14} weight="bold" />;
+  if (status === 'devis_cree') return <CheckCircle size={14} weight="bold" />;
+  if (status === 'termine') return <FlagCheckered size={14} weight="bold" />;
+  return <Spinner size={14} weight="bold" />;
 }
 
 /* ------------------------------------------------------------------ */
@@ -193,8 +215,9 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
   }, [id]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [view, status, interim]);
+    // Séance vide : on reste en haut, sur l'accueil (titre, micro, suggestions).
+    if (view?.items.length || busy || interim) endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [view, status, interim, busy]);
 
   useEffect(() => store.set('envo.voix', speakOn ? '1' : '0'), [speakOn]);
 
@@ -293,39 +316,45 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
     <div className="chat">
       <header className="chat__head">
         <a href="#/devis" className="icon-btn" aria-label="Retour aux séances">
-          <ArrowLeft size={20} />
+          <ArrowLeft size={22} />
         </a>
         <div className="chat__title">
-          <strong>{view.conversation.title || 'Nouvelle séance'}</strong>
-          <span className={`badge badge--${view.conversation.status}`}>{STATUS_LABEL[view.conversation.status] ?? view.conversation.status}</span>
+          <strong title={view.conversation.title}>{view.conversation.title || 'Nouvelle séance'}</strong>
+          <span className={`badge badge--${view.conversation.status}`}>
+            <StatusIcon status={view.conversation.status} /> {STATUS_LABEL[view.conversation.status] ?? view.conversation.status}
+          </span>
         </div>
-        {canSpeak() && (
-          <button className={`icon-btn${speakOn ? ' is-on' : ''}`} onClick={() => (setSpeakOn(!speakOn), stopSpeaking())} aria-pressed={speakOn} aria-label={speakOn ? 'Ne plus lire les réponses' : 'Lire les réponses à voix haute'} title="Lecture à voix haute">
-            {speakOn ? <SpeakerHigh size={20} /> : <SpeakerSlash size={20} />}
-          </button>
-        )}
-        {canListen() && (
-          <button
-            className={`icon-btn${handsFree ? ' is-on' : ''}`}
-            onClick={() => {
-              const on = !handsFree;
-              setHandsFree(on);
-              if (on) {
-                setSpeakOn(true);
-                startListening();
-              } else rec.current?.stop();
-            }}
-            aria-pressed={handsFree}
-            aria-label="Mode mains libres"
-            title="Mains libres : le micro se rouvre après chaque réponse"
-          >
-            <Ear size={20} />
-          </button>
-        )}
-        <button className="btn btn--ghost btn--small" onClick={() => setClosing(true)}>
-          <Check size={16} /> Terminer
+        <button className="btn btn--small btn--outline" onClick={() => setClosing(true)}>
+          <FlagCheckered size={18} /> Terminer
         </button>
       </header>
+
+      {(canSpeak() || canListen()) && (
+        <div className="voicebar" role="group" aria-label="Voix">
+          {canSpeak() && (
+            <button className={`toggle${speakOn ? ' is-on' : ''}`} onClick={() => (setSpeakOn(!speakOn), stopSpeaking())} aria-pressed={speakOn}>
+              {speakOn ? <SpeakerHigh size={18} /> : <SpeakerSlash size={18} />} Lire les réponses
+            </button>
+          )}
+          {canListen() && (
+            <button
+              className={`toggle${handsFree ? ' is-on' : ''}`}
+              onClick={() => {
+                const on = !handsFree;
+                setHandsFree(on);
+                if (on) {
+                  setSpeakOn(true);
+                  startListening();
+                } else rec.current?.stop();
+              }}
+              aria-pressed={handsFree}
+              title="Le micro se rouvre après chaque réponse"
+            >
+              <Headset size={18} /> Mains libres
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="chat__scroll">
         {empty && (
@@ -542,7 +571,7 @@ function Value({ v }: { v: unknown }) {
       <div className="vtable">
         <table>
           <thead>
-            <tr>{cols.map((c) => <th key={c}>{toolLabel(c)}</th>)}</tr>
+            <tr>{cols.map((c) => <th key={c}>{fieldLabel(c)}</th>)}</tr>
           </thead>
           <tbody>
             {v.map((r, i) => (
@@ -559,7 +588,7 @@ function Value({ v }: { v: unknown }) {
       <dl className="confirm__fields confirm__fields--nested">
         {Object.entries(v).map(([k, x]) => (
           <div key={k}>
-            <dt>{toolLabel(k)}</dt>
+            <dt>{fieldLabel(k)}</dt>
             <dd><Value v={x} /></dd>
           </div>
         ))}
@@ -576,7 +605,7 @@ function Confirm({ item, busy, onAnswer }: { item: Extract<ViewItem, { type: 'co
       <div className="confirm__head">
         {item.state === 'validee' ? <CheckCircle size={20} /> : item.state === 'refusee' ? <XCircle size={20} /> : item.state === 'echec' ? <Warning size={20} /> : <Warning size={20} />}
         <strong>
-          {waiting ? 'À valider : ' : item.state === 'validee' ? 'Fait dans Interfast : ' : item.state === 'refusee' ? 'Refusé : ' : 'Échec dans Interfast : '}
+          {waiting ? 'À valider — ' : item.state === 'validee' ? 'Fait dans Interfast — ' : item.state === 'refusee' ? 'Refusé — ' : 'Échec dans Interfast — '}
           {toolLabel(item.tool)}
         </strong>
       </div>
@@ -584,7 +613,7 @@ function Confirm({ item, busy, onAnswer }: { item: Extract<ViewItem, { type: 'co
       <dl className="confirm__fields">
         {entries.map(([k, v]) => (
           <div key={k}>
-            <dt>{toolLabel(k)}</dt>
+            <dt>{fieldLabel(k)}</dt>
             <dd><Value v={v} /></dd>
           </div>
         ))}

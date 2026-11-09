@@ -102,7 +102,12 @@ tools/demo-server.ts  démo sur un port (interface + API, /demo = connecté d'of
 ```
 
 React 19 + TypeScript strict + Vite ; Node 22 + Hono + `postgres` ; serveur
-compilé par esbuild en un seul fichier ; icônes Phosphor (trait `regular`) ;
+compilé par esbuild en un seul fichier ; icônes **Phosphor PARTOUT** (demande du
+09/11/2026) : chaque écran passe par `ui/PageHead.tsx` (icône `light`), chaque
+titre de carte et chaque bouton porte une icône (`regular`, `bold` sous 16 px et
+pour l'onglet actif, jamais `fill` sauf les étoiles de note) ; jamais d'emoji.
+Les noms techniques d'Interfast s'affichent en français par `fieldLabel()` /
+`toolLabel()` (`lib/format.ts`, testés) ;
 police Manrope embarquée. Identité « atelier » (bleu de travail, jaune pour la
 voix), volontairement différente de Pixo.
 

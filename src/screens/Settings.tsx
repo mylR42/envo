@@ -6,7 +6,8 @@
  *
  * La clé Interfast ne revient jamais du serveur : seuls ses 4 derniers caractères.
  */
-import { Brain, Buildings, CheckCircle, FloppyDisk, Key, LockKey, PencilSimple, Plugs, Plus, SignOut, Trash, Warning } from '@phosphor-icons/react';
+import { Brain, Buildings, CheckCircle, FloppyDisk, Gear, Key, LockKey, PencilSimple, Plugs, Plus, SignOut, Trash, UserCircle, Warning } from '@phosphor-icons/react';
+import { PageHead } from '../ui/PageHead';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { api, type User } from '../lib/api';
 import { relDate } from '../lib/format';
@@ -113,17 +114,28 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
   if (!s)
     return (
       <div className="page">
-        <h1>Paramètres</h1>
+        <PageHead icon={Gear} title="Paramètres" />
         {note('top') || <p className="muted">Chargement…</p>}
       </div>
     );
 
   return (
     <div className="page page--settings">
-      <header className="page__head">
-        <h1>Paramètres</h1>
-        <p className="muted">Ce que l’assistante sait de vous et de votre entreprise, et la connexion à Interfast.</p>
-      </header>
+      <PageHead icon={Gear} title="Paramètres">
+        Ce que l’assistante sait de vous et de votre entreprise, et la connexion à Interfast.
+      </PageHead>
+      <nav className="jump" aria-label="Sections">
+        {[
+          { id: 'entreprise', label: 'Entreprise', I: Buildings },
+          { id: 'interfast', label: 'Interfast', I: Plugs },
+          { id: 'memoire', label: 'Mémoire', I: Brain },
+          { id: 'securite', label: 'Sécurité', I: LockKey },
+        ].map(({ id, label, I }) => (
+          <a key={id} href={`#/parametres/${id}`} onClick={(e) => (e.preventDefault(), document.getElementById(`s-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }))}>
+            <I size={18} /> {label}
+          </a>
+        ))}
+      </nav>
 
       <Section id="entreprise" open={section === 'entreprise'} icon={<Buildings size={20} weight="light" />} title="Mon entreprise et mes habitudes" intro="L’assistante s’en sert pour chiffrer sans vous reposer les mêmes questions.">
         <form
@@ -231,6 +243,9 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
       <Security mail={mail} open={section === 'securite'} />
 
       <section className="card section">
+        <h2>
+          <UserCircle size={20} weight="light" /> Compte
+        </h2>
         <button className="btn" onClick={onLogout}>
           <SignOut size={18} /> Se déconnecter
         </button>

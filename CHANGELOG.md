@@ -1,5 +1,16 @@
 # Journal des versions
 
+## 0.2.0 — 09/11/2026
+
+Icônes Phosphor partout et ergonomie revue.
+- Un en-tête commun à chaque écran (icône, titre, explication, actions) ; une icône sur chaque titre de carte.
+- Conversation : titre lisible sur deux lignes, état avec icône, « Terminer » en bouton visible ; la voix passe dans une barre dédiée aux libellés clairs (« Lire les réponses », « Mains libres ») au lieu de deux icônes muettes.
+- Les noms techniques d’Interfast sont traduits (« create_quote » → « Créer devis », « unit_price » → « PU HT »).
+- Tableau de bord : quatre tuiles compactes (deux par ligne sur téléphone), la note moyenne passe dans « Dernières séances ».
+- Listes de séances : icône d’état (à votre tour, devis créé, en cours) et flèche.
+- Paramètres : raccourcis vers chaque section, collés en haut pendant le défilement.
+- Une séance vide s’ouvre en haut (titre, micro, suggestions) au lieu d’être défilée.
+
 ## 0.1.1 — 09/11/2026
 
 - Déploiement sur le VPS (modèle Pixo) : la CI publie la branche `dist` depuis `main`, le VPS la tire chaque minute, contrôle public puis retour arrière en cas d’échec. Installation : `deploy/install-vps.sh`, voir `DEPLOY.md`.

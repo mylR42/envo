@@ -27,3 +27,19 @@ describe('totaux du brouillon', () => {
     expect(totals([{ designation: 'y', quantite: 1, prix_unitaire_ht: 100 }]).ttc).toBe(100);
   });
 });
+
+describe('libellés Interfast en français', async () => {
+  const { fieldLabel, toolLabel } = await import('../src/lib/format');
+  it('champs', () => {
+    expect(fieldLabel('unit_price')).toBe('PU HT');
+    expect(fieldLabel('customer_id')).toBe('Client');
+    expect(fieldLabel('lines')).toBe('Lignes');
+    expect(fieldLabel('quoteNumber')).toBe('Devis number');
+  });
+  it('outils', () => {
+    expect(toolLabel('create_quote')).toBe('Créer devis');
+    expect(toolLabel('search_customers')).toBe('Chercher clients');
+    expect(toolLabel('send_quote_by_email')).toBe('Envoyer devis par e-mail');
+    expect(toolLabel('weird_tool')).toBe('Weird tool');
+  });
+});

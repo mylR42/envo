@@ -6,7 +6,8 @@
  * Aucun chiffre de devis n'est stocké par Envo : « devis créés » compte les
  * séances qui ont abouti à une création DANS Interfast.
  */
-import { ArrowRight, Brain, ChatCircleDots, CheckCircle, ClipboardText, Hourglass, Microphone, Plugs, PlugsConnected, Star, Warning } from '@phosphor-icons/react';
+import { ArrowRight, Brain, CaretRight, ChatCircleDots, CheckCircle, ClipboardText, ClockCounterClockwise, FilePlus, FileText, HandWaving, Hourglass, Microphone, PencilSimpleLine, Plugs, PlugsConnected, Star, Warning } from '@phosphor-icons/react';
+import { PageHead } from '../ui/PageHead';
 import { useEffect, useState } from 'react';
 import { api, type ConvSummary, type User } from '../lib/api';
 import { relDate, STATUS_LABEL } from '../lib/format';
@@ -50,14 +51,15 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
 
   return (
     <div className="page">
-      <header className="page__head">
-        <h1>{hello(user.name)}</h1>
-        <p className="muted">Que prépare-t-on aujourd’hui ?</p>
-      </header>
+      <PageHead icon={HandWaving} title={hello(user.name)}>
+        Que prépare-t-on aujourd’hui ?
+      </PageHead>
 
       <section className="hero card">
         <div className="hero__text">
-          <h2>Nouveau devis</h2>
+          <h2>
+            <FilePlus size={24} weight="light" /> Nouveau devis
+          </h2>
           <p>Décrivez le chantier comme à un collègue : l’assistante retrouve le client et vos devis passés dans Interfast, pose les questions utiles et propose le chiffrage.</p>
         </div>
         <div className="hero__actions">
@@ -67,7 +69,7 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
             </button>
           )}
           <button className="btn btn--primary btn--big" onClick={() => onStart()} disabled={!assistant}>
-            <ChatCircleDots size={24} weight="regular" /> Écrire un devis
+            <PencilSimpleLine size={24} weight="regular" /> Écrire un devis
           </button>
           <button className="btn btn--ghost" onClick={() => onStart({ text: 'Fais-moi le point sur mes devis en cours dans Interfast : ceux en attente de réponse, à relancer, et les plus anciens.' })} disabled={!assistant}>
             <ClipboardText size={20} /> Faire le point sur mes devis
@@ -94,35 +96,37 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
         <>
           <section className="stats">
             <a className={`stat card${d.waiting ? ' stat--alert' : ''}`} href="#/devis">
-              <Hourglass size={22} weight="light" />
+              <Hourglass size={24} weight="light" />
               <strong>{d.waiting}</strong>
-              <span>{d.waiting > 1 ? 'séances attendent votre réponse' : 'séance attend votre réponse'}</span>
+              <span>à votre tour</span>
             </a>
             <div className="stat card">
-              <CheckCircle size={22} weight="light" />
+              <CheckCircle size={24} weight="light" />
               <strong>{d.quotes_month}</strong>
-              <span>devis créés dans Interfast ce mois-ci</span>
+              <span>devis créés ce mois</span>
             </div>
             <div className="stat card">
-              <ChatCircleDots size={22} weight="light" />
+              <ChatCircleDots size={24} weight="light" />
               <strong>{d.sessions_month}</strong>
-              <span>séances avec l’assistante ce mois-ci</span>
+              <span>séances ce mois</span>
             </div>
             <a className="stat card" href="#/parametres/memoire">
-              <Brain size={22} weight="light" />
+              <Brain size={24} weight="light" />
               <strong>{d.rex}</strong>
-              <span>habitudes et décisions retenues</span>
+              <span>choses retenues</span>
             </a>
-            <div className="stat card">
-              <Star size={22} weight="light" />
-              <strong>{d.avg_rating ?? '–'}</strong>
-              <span>note moyenne donnée à l’assistante</span>
-            </div>
           </section>
 
           <div className="grid2">
             <section className="card">
-              <h2>Dernières séances</h2>
+              <h2>
+                <ClockCounterClockwise size={20} /> Dernières séances
+                {d.avg_rating !== null && (
+                  <span className="h2__aside">
+                    <Star size={16} /> {d.avg_rating.toLocaleString('fr-FR')}/5
+                  </span>
+                )}
+              </h2>
               {d.recent.length === 0 ? (
                 <p className="muted">Aucune séance pour l’instant. Lancez votre premier devis ci-dessus.</p>
               ) : (
@@ -130,11 +134,17 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
                   {d.recent.map((c) => (
                     <li key={c.id}>
                       <a href={`#/devis/${c.id}`}>
-                        <span className="list__title">{c.title || 'Séance sans titre'}</span>
-                        <span className="list__meta">
-                          {c.waiting ? <span className="badge badge--warn">À votre tour</span> : <span className={`badge badge--${c.status}`}>{STATUS_LABEL[c.status] ?? c.status}</span>}
-                          {relDate(c.updated_at)}
+                        <span className={`list__icon list__icon--${c.waiting ? 'warn' : c.status}`} aria-hidden="true">
+                          {c.waiting ? <Hourglass size={20} /> : c.status === 'devis_cree' ? <FileText size={20} /> : <ChatCircleDots size={20} />}
                         </span>
+                        <span className="list__body">
+                          <span className="list__title">{c.title || 'Séance sans titre'}</span>
+                          <span className="list__meta">
+                            {c.waiting ? <span className="badge badge--warn">À votre tour</span> : <span className={`badge badge--${c.status}`}>{STATUS_LABEL[c.status] ?? c.status}</span>}
+                            {relDate(c.updated_at)}
+                          </span>
+                        </span>
+                        <CaretRight size={18} className="list__go" aria-hidden="true" />
                       </a>
                     </li>
                   ))}
@@ -151,8 +161,8 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
                     {d.interfast.avg_ms !== null && d.interfast.avg_ms >= 100 && <> en {(d.interfast.avg_ms / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s en moyenne</>}.
                   </p>
                   {d.interfast.errors_week > 0 && <p className="alert alert--warn">{d.interfast.errors_week} erreur{d.interfast.errors_week > 1 ? 's' : ''} d’Interfast cette semaine. Testez la connexion dans Paramètres.</p>}
-                  <p className="muted">
-                    Actions validées ce mois-ci : {d.validated} · refusées : {d.refused}
+                  <p className="muted iconline">
+                    <CheckCircle size={16} /> Ce mois-ci : {d.validated} action{d.validated > 1 ? 's' : ''} validée{d.validated > 1 ? 's' : ''}, {d.refused} refusée{d.refused > 1 ? 's' : ''}
                   </p>
                 </>
               ) : (

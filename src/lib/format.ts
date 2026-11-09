@@ -45,8 +45,55 @@ export const STATUS_LABEL: Record<string, string> = {
   termine: 'Terminée',
 };
 
-/** Nom d'outil Interfast lisible : « create_quote » → « Create quote ». */
-export const toolLabel = (name: string) => {
-  const s = name.replace(/[_.-]+/g, ' ').trim();
-  return s.charAt(0).toUpperCase() + s.slice(1);
+/*
+ * Les noms d'outils et de champs viennent d'Interfast, souvent en anglais
+ * technique (create_quote, unit_price). L'artisan doit lire du français :
+ * libellés connus d'abord, sinon traduction mot à mot, sinon le mot tel quel.
+ * Rien ici ne suppose un nom d'outil précis. PUR, testé.
+ */
+const FIELDS: Record<string, string> = {
+  lines: 'Lignes', items: 'Lignes', rows: 'Lignes', lignes: 'Lignes',
+  label: 'Désignation', name: 'Nom', designation: 'Désignation', description: 'Description', title: 'Titre', titre: 'Titre',
+  qty: 'Qté', quantity: 'Qté', quantite: 'Qté', unit: 'Unité', unite: 'Unité',
+  unit_price: 'PU HT', price: 'Prix', unit_price_ht: 'PU HT', prix_unitaire_ht: 'PU HT', price_ht: 'Prix HT',
+  vat: 'TVA %', vat_rate: 'TVA %', tax_rate: 'TVA %', tva: 'TVA %',
+  discount: 'Remise', total: 'Total', total_ht: 'Total HT', total_ttc: 'Total TTC',
+  customer_id: 'Client', client_id: 'Client', customer: 'Client', client: 'Client',
+  address: 'Adresse', site_address: 'Adresse du chantier', email: 'E-mail', phone: 'Téléphone',
+  date: 'Date', due_date: 'Échéance', validity: 'Validité', validity_days: 'Validité (jours)',
+  notes: 'Remarques', note: 'Remarque', comment: 'Commentaire', status: 'Statut', reference: 'Référence', ref: 'Référence',
+  query: 'Recherche', id: 'Identifiant',
 };
+const VERBS: Record<string, string> = {
+  create: 'Créer', add: 'Ajouter', new: 'Créer', update: 'Modifier', edit: 'Modifier', delete: 'Supprimer', remove: 'Retirer',
+  send: 'Envoyer', get: 'Lire', read: 'Lire', list: 'Lister', search: 'Chercher', find: 'Chercher', duplicate: 'Dupliquer',
+  convert: 'Convertir', validate: 'Valider', cancel: 'Annuler', archive: 'Archiver',
+};
+const NOUNS: Record<string, string> = {
+  quote: 'devis', quotes: 'devis', estimate: 'devis', estimates: 'devis', invoice: 'facture', invoices: 'factures',
+  customer: 'client', customers: 'clients', client: 'client', clients: 'clients', contact: 'contact', contacts: 'contacts',
+  product: 'article', products: 'articles', item: 'article', items: 'articles', article: 'article', articles: 'articles',
+  line: 'ligne', lines: 'lignes', site: 'chantier', sites: 'chantiers', job: 'chantier', jobs: 'chantiers',
+  intervention: 'intervention', interventions: 'interventions', project: 'chantier', projects: 'chantiers',
+  by: 'par', email: 'e-mail', to: 'en', pdf: 'PDF',
+};
+
+const words = (s: string) => s.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase().split(/[_.\s-]+/).filter(Boolean);
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Nom d'un champ : « unit_price » → « PU HT ». */
+export function fieldLabel(key: string): string {
+  const k = key.toLowerCase();
+  if (FIELDS[k]) return FIELDS[k];
+  return cap(words(key).map((w) => FIELDS[w]?.toLowerCase() ?? NOUNS[w] ?? w).join(' '));
+}
+
+/** Nom d'un outil : « create_quote » → « Créer devis », « search_customers » → « Chercher clients ». */
+export function toolLabel(name: string): string {
+  const w = words(name);
+  if (!w.length) return name;
+  const [first, ...rest] = w;
+  const verb = VERBS[first!];
+  const tail = rest.map((x) => NOUNS[x] ?? x).join(' ');
+  return verb ? `${verb}${tail ? ` ${tail}` : ''}` : cap(w.map((x) => NOUNS[x] ?? x).join(' '));
+}
