@@ -691,6 +691,27 @@ code {
   color: var(--muted);
 }
 
+/* Numéro de version, en petit à droite de « Envo » (comme sur les autres outils du propriétaire). */
+.ver {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--navy);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.apphead .ver {
+  background: rgb(255 255 255 / 16%);
+  color: #dbe4ff;
+}
+.auth__intro .ver {
+  background: rgb(255 255 255 / 16%);
+  color: #dbe4ff;
+}
+
 /* ---------- En-tête de l'appli ---------- */
 .apphead {
   position: sticky;

@@ -101,6 +101,7 @@ export function App() {
         <a href="#/" className="apphead__brand" aria-label="Envo — tableau de bord">
           <Logo size={30} />
           <span className="apphead__name">Envo</span>
+          <span className="ver" title="Version de l’application">v{__ENVO_VERSION__}</span>
         </a>
         <span className="apphead__sep" aria-hidden="true" />
         <span className="apphead__page">

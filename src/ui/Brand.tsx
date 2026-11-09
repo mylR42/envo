@@ -17,7 +17,9 @@ export function Brand({ big = false }: { big?: boolean }) {
     <div className={`brand${big ? ' brand--big' : ''}`}>
       <Logo size={big ? 48 : 32} />
       <div>
-        <div className="brand__name">Envo</div>
+        <div className="brand__name">
+          Envo <span className="ver">v{__ENVO_VERSION__}</span>
+        </div>
         <div className="brand__tag">{TAGLINE}</div>
       </div>
     </div>

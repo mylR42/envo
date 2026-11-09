@@ -1,5 +1,9 @@
 # Journal des versions
 
+## 0.4.4 — 09/11/2026
+
+- Numéro de version en petit à droite de « Envo » : en-tête sur téléphone, barre latérale sur ordinateur, écran d’entrée.
+
 ## 0.4.3 — 09/11/2026
 
 - Tableau de bord sur téléphone : la phrase de l’assistante passe dans une carte « Le point du jour », repliée sur deux lignes (« Lire la suite », « Écouter ») — elle en faisait sept et repoussait l’essentiel hors de l’écran.

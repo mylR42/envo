@@ -110,6 +110,9 @@ de séance) et `speakable()` dit « euros hors taxes », « pour cent ».
 haut, hauteur `--apphead` (encoche comprise) que la conversation et les
 éléments collants (`.jump`) déduisent. Masqué à partir de 1024 px, où la barre
 latérale porte la marque. Un nouvel écran n'a rien à faire : il en hérite.
+⚠️ Le **numéro de version** est affiché en petit à droite de « Envo » (`.ver`,
+en-tête, barre latérale, écran d'entrée) : c'est ce qui permet de voir d'un
+coup d'œil quelle version tourne. Le monter à chaque livraison.
 
 ## Comptes et sécurité
 
