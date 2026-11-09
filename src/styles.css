@@ -1417,6 +1417,29 @@ code {
   box-shadow: var(--shadow);
   border-bottom-left-radius: 4px;
 }
+.msg__listen {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  min-height: 36px;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink-2);
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.msg--bot.is-speaking {
+  box-shadow: 0 0 0 2px var(--amber), var(--shadow);
+}
+.msg--bot.is-speaking .msg__listen {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--ink);
+}
 .msg--status {
   align-self: flex-start;
   color: var(--muted);

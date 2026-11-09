@@ -1,5 +1,11 @@
 # Journal des versions
 
+## 0.4.1 — 09/11/2026
+
+- Bouton « Écouter » sous chaque réponse de l’assistante (« Arrêter » pendant la lecture, la bulle lue est soulignée).
+- « Lire les réponses » : en l’activant, la dernière réponse est lue tout de suite.
+- Lecture phrase par phrase : les longues réponses ne sont plus coupées au bout de 15 s (Chrome) ; « € HT », « HT », « % » et les listes sont lus naturellement.
+
 ## 0.4.0 — 09/11/2026
 
 Tableau de bord : l’essentiel d’abord, des graphiques, et plus vite.

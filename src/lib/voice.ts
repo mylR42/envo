@@ -74,29 +74,80 @@ export function speakable(md: string): string {
     .replace(/```[\s\S]*?```/g, '')
     .replace(/^\s*\|.*\|\s*$/gm, '')
     .replace(/[*_`#>]/g, '')
-    .replace(/^\s*[-•]\s+/gm, '')
+    .replace(/^\s*[-•]\s+(.*?)\s*$/gm, (_, item: string) => (/[.!?:;]$/.test(item) ? item : `${item}.`))
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/€\s?HT/g, 'euros hors taxes')
+    .replace(/€\s?HT\b/g, 'euros hors taxes')
+    .replace(/€\s?TTC\b/g, 'euros TTC')
     .replace(/€/g, 'euros')
+    .replace(/\bHT\b/g, 'hors taxes')
+    .replace(/(\d)\s?%/g, '$1 pour cent')
+    .replace(/\s+→\s+/g, ', ')
     .replace(/\n{2,}/g, '\n')
     .trim();
 }
 
+/**
+ * Découpe un texte à lire en morceaux de 220 caractères au plus, aux fins de
+ * phrase (puis aux virgules). Chrome coupe un énoncé long au bout de ~15 s, et
+ * Safari en perd parfois la fin : une file de phrases courtes se lit en entier.
+ * PUR, testé.
+ */
+export function chunks(text: string, max = 220): string[] {
+  const out: string[] = [];
+  for (const line of text.split(/\n+/)) {
+    const sentences = line.match(/[^.!?;:]+[.!?;:]*\s*/g) ?? [line];
+    let cur = '';
+    for (const raw of sentences) {
+      const sen = raw.trim();
+      if (!sen) continue;
+      const pieces = sen.length <= max ? [sen] : sen.split(/(?<=,)\s+/);
+      for (const p of pieces) {
+        if (p.length > max) {
+          if (cur) out.push(cur), (cur = '');
+          for (let k = 0; k < p.length; k += max) out.push(p.slice(k, k + max));
+        } else if ((cur ? cur.length + 1 : 0) + p.length > max) {
+          out.push(cur);
+          cur = p;
+        } else cur = cur ? `${cur} ${p}` : p;
+      }
+    }
+    if (cur) out.push(cur);
+  }
+  return out.filter((c) => /[\p{L}\p{N}]/u.test(c));
+}
+
+let session = 0;
+
+/**
+ * Lit un texte (markdown accepté) à voix haute, phrase par phrase. `onEnd` est
+ * appelé à la fin ou à l'arrêt. Un nouvel appel interrompt la lecture en cours.
+ */
 export function speak(text: string, onEnd?: () => void): void {
   if (!canSpeak()) return onEnd?.();
   const s = window.speechSynthesis;
+  const mine = ++session;
   s.cancel();
-  const u = new SpeechSynthesisUtterance(speakable(text));
-  u.lang = 'fr-FR';
+  const parts = chunks(speakable(text));
   const fr = s.getVoices().find((v) => v.lang?.toLowerCase().startsWith('fr'));
-  if (fr) u.voice = fr;
-  u.rate = 1.05;
-  u.onend = () => onEnd?.();
-  u.onerror = () => onEnd?.();
-  s.speak(u);
+  let i = 0;
+  const next = () => {
+    if (mine !== session) return;
+    if (i >= parts.length) return onEnd?.();
+    const u = new SpeechSynthesisUtterance(parts[i++]!);
+    u.lang = 'fr-FR';
+    if (fr) u.voice = fr;
+    u.rate = 1.05;
+    u.onend = next;
+    u.onerror = (e) => (e.error === 'interrupted' || e.error === 'canceled' ? mine === session && onEnd?.() : next());
+    s.speak(u);
+  };
+  next();
 }
 
-export const stopSpeaking = () => canSpeak() && window.speechSynthesis.cancel();
+export const stopSpeaking = () => {
+  session++;
+  if (canSpeak()) window.speechSynthesis.cancel();
+};
 
 /**
  * Ce qu'une phrase dite décide face à une action en attente de validation.

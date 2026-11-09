@@ -26,6 +26,23 @@ describe('voix', () => {
   });
 
   it('texte lisible : sans markdown, euros dits en toutes lettres', () => {
-    expect(speakable('**Total** : 690 € HT\n- ligne 1\n| a | b |')).toBe('Total : 690 euros hors taxes\nligne 1');
+    expect(speakable('**Total** : 690 € HT\n- ligne 1\n| a | b |')).toBe('Total : 690 euros hors taxes\nligne 1.');
+  });
+});
+
+describe('lecture à voix haute', async () => {
+  const { chunks, speakable } = await import('../src/lib/voice');
+  it('listes et abréviations lues correctement', () => {
+    expect(speakable('**En attente** : 19 devis, 72 700 € HT\n- D0003, Mme Croppi : 4 320 € HT\n- Taux 46 %')).toBe(
+      'En attente : 19 devis, 72 700 euros hors taxes\nD0003, Mme Croppi : 4 320 euros hors taxes.\nTaux 46 pour cent.',
+    );
+  });
+  it('découpe en morceaux courts, aux fins de phrase, sans rien perdre', () => {
+    const t = 'Voici le point. '.repeat(30) + 'Fin.';
+    const c = chunks(t);
+    expect(c.every((x) => x.length <= 220)).toBe(true);
+    expect(c.join(' ').replace(/\s+/g, ' ')).toBe(t.trim().replace(/\s+/g, ' '));
+    expect(chunks('a'.repeat(500)).every((x) => x.length <= 220)).toBe(true);
+    expect(chunks('Une ligne.\nUne autre.')).toEqual(['Une ligne.', 'Une autre.']);
   });
 });

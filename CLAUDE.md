@@ -98,6 +98,10 @@ Absente (Firefox) → le micro disparaît. Sur iPhone, l'écoute ne démarre que
 pendant un appui. ⚠️ À la voix, **seule une formule explicite valide une
 écriture** (`voiceDecision` : « je valide »… ; un « oui » seul ne suffit pas).
 Mode mains libres : micro rouvert après chaque réponse lue.
+Chaque réponse a son bouton « Écouter ». ⚠️ La lecture passe par `chunks()`
+(morceaux ≤ 220 caractères aux fins de phrase, en file) : Chrome coupe un
+énoncé long au bout de ~15 s. `speak()` est annulable (`stopSpeaking`, compteur
+de séance) et `speakable()` dit « euros hors taxes », « pour cent ».
 
 ## Comptes et sécurité
 

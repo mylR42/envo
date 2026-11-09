@@ -33,6 +33,7 @@ import {
   Plus,
   SpeakerHigh,
   SpeakerSlash,
+  Stop,
   Star,
   Trash,
   Warning,
@@ -183,6 +184,8 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState('');
   const [speakOn, setSpeakOn] = useState(() => store.get('envo.voix') === '1');
+  /** Index (dans view.items) du message en cours de lecture, pour son bouton « Arrêter ». */
+  const [speaking, setSpeaking] = useState<number | null>(null);
   const [handsFree, setHandsFree] = useState(false);
   const [closing, setClosing] = useState(false);
   const rec = useRef<Listening | null>(null);
@@ -241,7 +244,8 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
         .map((i) => (i.type === 'assistant' ? i.text : i.type === 'choice' && i.open ? `${i.question} ${i.options.join(', ')} ?` : i.type === 'confirm' && i.state === 'attente' ? 'Je vous demande de valider cette action. Dites « je valide » ou « non ».' : ''))
         .filter(Boolean)
         .join('\n');
-      if (speakOn && toSay) speak(toSay, () => handsFreeRef.current && startListening());
+      const lastBot = v.items.map((it, k) => (it.type === 'assistant' ? k : -1)).filter((k) => k >= before).pop() ?? null;
+      if (speakOn && toSay) say(toSay, lastBot, () => handsFreeRef.current && startListening());
       else if (handsFreeRef.current) startListening();
     } catch (e) {
       setError((e as Error).message);
@@ -251,6 +255,25 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
       setBusy(false);
       setStatus('');
     }
+  }
+
+  /** Lit un texte ; `idx` = message dont le bouton passe à « Arrêter ». */
+  function say(t: string, idx: number | null, after?: () => void) {
+    setSpeaking(idx);
+    speak(t, () => {
+      setSpeaking((cur) => (cur === idx ? null : cur));
+      after?.();
+    });
+  }
+
+  function listenTo(idx: number) {
+    if (speaking === idx) {
+      stopSpeaking();
+      setSpeaking(null);
+      return;
+    }
+    const it = view?.items[idx];
+    if (it?.type === 'assistant') say(it.text, idx);
   }
 
   /** Une phrase dite : réponse à la question ouverte, décision sur l'action en attente, ou message. */
@@ -332,7 +355,21 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
       {(canSpeak() || canListen()) && (
         <div className="voicebar" role="group" aria-label="Voix">
           {canSpeak() && (
-            <button className={`toggle${speakOn ? ' is-on' : ''}`} onClick={() => (setSpeakOn(!speakOn), stopSpeaking())} aria-pressed={speakOn}>
+            <button
+              className={`toggle${speakOn ? ' is-on' : ''}`}
+              onClick={() => {
+                const on = !speakOn;
+                setSpeakOn(on);
+                stopSpeaking();
+                setSpeaking(null);
+                // En l'activant, on entend tout de suite la dernière réponse.
+                if (on && !busy && view) {
+                  const k = view.items.map((it, n) => (it.type === 'assistant' ? n : -1)).filter((n) => n >= 0).pop();
+                  if (k !== undefined) listenTo(k);
+                }
+              }}
+              aria-pressed={speakOn}
+            >
               {speakOn ? <SpeakerHigh size={18} /> : <SpeakerSlash size={18} />} Lire les réponses
             </button>
           )}
@@ -378,7 +415,7 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
         )}
 
         {view.items.map((it, i) => (
-          <Item key={i} item={it} busy={busy} onAnswer={(a) => send({ answers: [a] })} />
+          <Item key={i} item={it} busy={busy} onAnswer={(a) => send({ answers: [a] })} speaking={speaking === i} onListen={canSpeak() ? () => listenTo(i) : undefined} />
         ))}
 
         {(busy || interim) && (
@@ -434,7 +471,7 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
 
 /* ------------------------------------------------------------------ */
 
-function Item({ item, busy, onAnswer }: { item: ViewItem; busy: boolean; onAnswer(a: Answer): void }) {
+function Item({ item, busy, onAnswer, speaking, onListen }: { item: ViewItem; busy: boolean; onAnswer(a: Answer): void; speaking?: boolean; onListen?(): void }) {
   switch (item.type) {
     case 'user':
       return <div className="msg msg--user">{item.text}</div>;
@@ -442,8 +479,21 @@ function Item({ item, busy, onAnswer }: { item: ViewItem; busy: boolean; onAnswe
       return <div className="msg msg--user msg--answer">{item.text}</div>;
     case 'assistant':
       return (
-        <div className="msg msg--bot">
+        <div className={`msg msg--bot${speaking ? ' is-speaking' : ''}`}>
           <Markdown text={item.text} />
+          {onListen && (
+            <button className="msg__listen" onClick={onListen} aria-pressed={speaking}>
+              {speaking ? (
+                <>
+                  <Stop size={16} weight="bold" /> Arrêter
+                </>
+              ) : (
+                <>
+                  <SpeakerHigh size={16} /> Écouter
+                </>
+              )}
+            </button>
+          )}
         </div>
       );
     case 'lookup':
