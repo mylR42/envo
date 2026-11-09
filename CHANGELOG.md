@@ -1,5 +1,10 @@
 # Journal des versions
 
+## 0.4.5 — 09/11/2026
+
+- Lecture à voix haute réparée (« je n’entends rien ») : Chrome laisse tomber sans erreur une lecture lancée juste après une annulation, et peut perdre la fin d’une file de phrases. Les énoncés sont gardés en mémoire, l’annulation n’a lieu que si quelque chose est lu, et la lecture repart un instant après.
+- Activer « Lire les réponses » dit « Lecture activée » (on sait tout de suite si le son marche) ; une lecture bloquée par le navigateur est expliquée à l’écran.
+
 ## 0.4.4 — 09/11/2026
 
 - Numéro de version en petit à droite de « Envo » : en-tête sur téléphone, barre latérale sur ordinateur, écran d’entrée.

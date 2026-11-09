@@ -260,10 +260,19 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
   /** Lit un texte ; `idx` = message dont le bouton passe à « Arrêter ». */
   function say(t: string, idx: number | null, after?: () => void) {
     setSpeaking(idx);
-    speak(t, () => {
-      setSpeaking((cur) => (cur === idx ? null : cur));
-      after?.();
-    });
+    speak(
+      t,
+      () => {
+        setSpeaking((cur) => (cur === idx ? null : cur));
+        after?.();
+      },
+      (e) =>
+        setError(
+          e === 'bloque'
+            ? 'Le navigateur a bloqué la lecture. Touchez « Écouter » sous la réponse, et vérifiez que le son de l’appareil n’est pas coupé.'
+            : 'Aucune voix disponible sur cet appareil pour la lecture.',
+        ),
+    );
   }
 
   function listenTo(idx: number) {
@@ -362,10 +371,12 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
                 setSpeakOn(on);
                 stopSpeaking();
                 setSpeaking(null);
-                // En l'activant, on entend tout de suite la dernière réponse.
-                if (on && !busy && view) {
-                  const k = view.items.map((it, n) => (it.type === 'assistant' ? n : -1)).filter((n) => n >= 0).pop();
-                  if (k !== undefined) listenTo(k);
+                // En l'activant, on entend tout de suite la dernière réponse — ou « Lecture activée » :
+                // on sait aussitôt si le son marche, et l'appui autorise la lecture dans le navigateur.
+                if (on) {
+                  const k = view?.items.map((it, n) => (it.type === 'assistant' ? n : -1)).filter((n) => n >= 0).pop();
+                  if (k !== undefined && !busy) listenTo(k);
+                  else say('Lecture activée. Je lirai mes réponses.', null);
                 }
               }}
               aria-pressed={speakOn}

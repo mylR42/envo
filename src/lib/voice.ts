@@ -117,36 +117,95 @@ export function chunks(text: string, max = 220): string[] {
 }
 
 let session = 0;
+/**
+ * ⚠️ Les énoncés en cours sont gardés ICI : Chrome peut jeter de la mémoire un
+ * énoncé encore en lecture, et son `onend` n'arrive alors jamais — la file
+ * s'arrête après la première phrase, sans erreur.
+ */
+const alive = new Set<SpeechSynthesisUtterance>();
+
+/** La voix française du système (les voix arrivent parfois après le chargement). */
+function frenchVoice(): SpeechSynthesisVoice | undefined {
+  const voices = window.speechSynthesis.getVoices();
+  const fr = voices.filter((v) => v.lang?.toLowerCase().replace('_', '-').startsWith('fr'));
+  return fr.find((v) => /fr-fr/i.test(v.lang) && v.localService) ?? fr.find((v) => /fr-fr/i.test(v.lang)) ?? fr[0];
+}
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  // Demander la liste tôt : Chrome ne la remplit qu'après ce premier appel.
+  window.speechSynthesis.getVoices();
+}
+
+export type SpeakError = 'bloque' | 'indisponible';
 
 /**
  * Lit un texte (markdown accepté) à voix haute, phrase par phrase. `onEnd` est
- * appelé à la fin ou à l'arrêt. Un nouvel appel interrompt la lecture en cours.
+ * appelé à la fin ou à l'arrêt ; `onError` quand le navigateur refuse (lecture
+ * automatique bloquée, aucune voix). Un nouvel appel interrompt le précédent.
+ *
+ * ⚠️ Chrome laisse tomber SANS ERREUR un `speak()` qui suit immédiatement un
+ * `cancel()` : on n'annule que s'il y a quelque chose à annuler, et on attend
+ * alors un instant avant de reparler. Sans rien en cours, on parle tout de suite
+ * — Safari (iPhone) n'accepte la première lecture que pendant l'appui.
  */
-export function speak(text: string, onEnd?: () => void): void {
-  if (!canSpeak()) return onEnd?.();
+export function speak(text: string, onEnd?: () => void, onError?: (e: SpeakError) => void): void {
+  if (!canSpeak()) {
+    onError?.('indisponible');
+    return onEnd?.();
+  }
   const s = window.speechSynthesis;
   const mine = ++session;
-  s.cancel();
   const parts = chunks(speakable(text));
-  const fr = s.getVoices().find((v) => v.lang?.toLowerCase().startsWith('fr'));
   let i = 0;
+  let started = false;
+  const finish = () => {
+    if (mine === session) onEnd?.();
+  };
   const next = () => {
     if (mine !== session) return;
-    if (i >= parts.length) return onEnd?.();
+    if (i >= parts.length) return finish();
     const u = new SpeechSynthesisUtterance(parts[i++]!);
+    alive.add(u);
     u.lang = 'fr-FR';
-    if (fr) u.voice = fr;
+    const v = frenchVoice();
+    if (v) u.voice = v;
     u.rate = 1.05;
-    u.onend = next;
-    u.onerror = (e) => (e.error === 'interrupted' || e.error === 'canceled' ? mine === session && onEnd?.() : next());
+    u.onstart = () => {
+      started = true;
+    };
+    u.onend = () => {
+      alive.delete(u);
+      next();
+    };
+    u.onerror = (e) => {
+      alive.delete(u);
+      if (e.error === 'interrupted' || e.error === 'canceled') return finish();
+      if (e.error === 'not-allowed') {
+        onError?.('bloque');
+        return finish();
+      }
+      next();
+    };
+    s.resume(); // Chrome reste parfois « en pause » après une lecture coupée.
     s.speak(u);
   };
-  next();
+  const busy = s.speaking || s.pending;
+  if (busy) {
+    s.cancel();
+    setTimeout(next, 120);
+  } else next();
+  // Garde-fou : rien n'a démarré au bout de 4 s (lecture bloquée sans erreur).
+  setTimeout(() => {
+    if (mine === session && !started && i > 0) onError?.('bloque');
+  }, 4000);
 }
 
 export const stopSpeaking = () => {
   session++;
-  if (canSpeak()) window.speechSynthesis.cancel();
+  if (canSpeak()) {
+    const s = window.speechSynthesis;
+    if (s.speaking || s.pending) s.cancel();
+  }
+  alive.clear();
 };
 
 /**
