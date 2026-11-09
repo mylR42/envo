@@ -1,5 +1,9 @@
 # Journal des versions
 
+## 0.4.2 — 09/11/2026
+
+- En-tête de l’appli sur chaque écran (téléphone et tablette) : logo et nom Envo, écran en cours, initiales du compte (mène aux Paramètres). Il reste en haut au défilement ; sur ordinateur, la barre latérale le porte.
+
 ## 0.4.1 — 09/11/2026
 
 - Bouton « Écouter » sous chaque réponse de l’assistante (« Arrêter » pendant la lecture, la bulle lue est soulignée).

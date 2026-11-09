@@ -13,7 +13,7 @@ import { AuthScreen } from './screens/AuthScreen';
 import { Dashboard } from './screens/Dashboard';
 import { AssistDevis } from './screens/AssistDevis';
 import { Settings } from './screens/Settings';
-import { Brand } from './ui/Brand';
+import { Brand, Logo } from './ui/Brand';
 
 export type Route = { screen: 'home' } | { screen: 'devis'; id?: string; start?: string } | { screen: 'settings'; section?: string };
 
@@ -24,6 +24,12 @@ export function parseRoute(hash: string): Route {
   if (a === 'parametres') return { screen: 'settings', section: b };
   return { screen: 'home' };
 }
+
+/** « Micael Bonnay » → « MB » ; une adresse → sa première lettre. PUR. */
+export const initials = (name: string) => {
+  const w = name.replace(/@.*/, '').split(/[\s._-]+/).filter(Boolean);
+  return ((w[0]?.[0] ?? '?') + (w.length > 1 ? w[w.length - 1]![0] : '')).toUpperCase();
+};
 
 export const go = (path: string) => {
   window.location.hash = path;
@@ -89,6 +95,28 @@ export function App() {
           </button>
         </div>
       </aside>
+
+      {/* En-tête de l'appli : TOUJOURS là sur téléphone et tablette (sur ordinateur, la barre latérale le porte). */}
+      <header className="apphead">
+        <a href="#/" className="apphead__brand" aria-label="Envo — tableau de bord">
+          <Logo size={30} />
+          <span className="apphead__name">Envo</span>
+        </a>
+        <span className="apphead__sep" aria-hidden="true" />
+        <span className="apphead__page">
+          {(() => {
+            const t = tabs.find((x) => x.key === route.screen)!;
+            return (
+              <>
+                <t.icon size={18} /> {t.label}
+              </>
+            );
+          })()}
+        </span>
+        <a href="#/parametres" className="apphead__me" aria-label={`Mon compte : ${me.user.name || me.user.email}`} title={me.user.name || me.user.email}>
+          {initials(me.user.name || me.user.email)}
+        </a>
+      </header>
 
       <main className="main">
         {route.screen === 'home' && <Dashboard user={me.user} assistant={me.assistant} onStart={startSession} />}

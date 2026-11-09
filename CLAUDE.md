@@ -103,6 +103,14 @@ Chaque réponse a son bouton « Écouter ». ⚠️ La lecture passe par `chunks
 énoncé long au bout de ~15 s. `speak()` est annulable (`stopSpeaking`, compteur
 de séance) et `speakable()` dit « euros hors taxes », « pour cent ».
 
+## En-tête
+
+⚠️ **Un en-tête sur CHAQUE écran** (demande du 09/11/2026) : `.apphead` dans
+`App.tsx` (logo + « Envo », écran en cours, initiales → Paramètres), collé en
+haut, hauteur `--apphead` (encoche comprise) que la conversation et les
+éléments collants (`.jump`) déduisent. Masqué à partir de 1024 px, où la barre
+latérale porte la marque. Un nouvel écran n'a rien à faire : il en hérite.
+
 ## Comptes et sécurité
 
 Voir `SECURITE.md`. Inscription par code e-mail ; **connexion en deux temps**

@@ -4,6 +4,8 @@
  * l'action vocale. Volontairement différente de Pixo (crème et corail).
  */
 :root {
+  /* Hauteur de l'en-tête de l'appli (téléphone, tablette), encoche comprise. */
+  --apphead: calc(56px + env(safe-area-inset-top));
   /* Graphiques : palette catégorielle validée (scripts/validate_palette.js, surface #fff) — ordre FIXE. */
   --series-1: #2a78d6;
   --series-2: #eb6834;
@@ -360,7 +362,7 @@ code {
   gap: 1rem;
 }
 .page__head {
-  padding-top: max(0.5rem, env(safe-area-inset-top));
+  padding-top: 0.5rem;
 }
 .page__head {
   display: flex;
@@ -415,7 +417,7 @@ code {
   margin: -0.2rem -1rem 0;
   padding: 0.2rem 1rem 0.4rem;
   position: sticky;
-  top: 0;
+  top: var(--apphead);
   z-index: 5;
   background: linear-gradient(var(--bg) 75%, transparent);
   scrollbar-width: none;
@@ -687,6 +689,75 @@ code {
   align-items: center;
   font-size: 0.82rem;
   color: var(--muted);
+}
+
+/* ---------- En-tête de l'appli ---------- */
+.apphead {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: var(--apphead);
+  padding: env(safe-area-inset-top) max(0.8rem, env(safe-area-inset-right)) 0 max(0.8rem, env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--navy);
+  color: #fff;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 6%), 0 4px 16px rgb(15 23 42 / 18%);
+}
+.apphead__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #fff;
+  text-decoration: none;
+  flex: none;
+}
+.apphead__brand svg rect:first-child {
+  fill: #fff;
+}
+.apphead__brand svg rect:nth-child(2) {
+  fill: var(--navy);
+}
+.apphead__brand svg path:first-of-type {
+  stroke: #fff;
+}
+.apphead__name {
+  font-weight: 800;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+}
+.apphead__sep {
+  width: 1px;
+  height: 22px;
+  background: rgb(255 255 255 / 25%);
+  flex: none;
+}
+.apphead__page {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #dbe4ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.apphead__me {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--amber);
+  color: var(--ink);
+  font-weight: 800;
+  font-size: 0.85rem;
+  text-decoration: none;
 }
 
 /* ---------- Tableau de bord Interfast ---------- */
@@ -1314,14 +1385,14 @@ code {
 .chat {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  height: calc(100dvh - var(--apphead));
   padding-bottom: var(--tabbar);
 }
 .chat__head {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  padding: max(0.4rem, env(safe-area-inset-top)) 0.5rem 0.4rem;
+  padding: 0.4rem 0.5rem;
   background: #fff;
   border-bottom: 1px solid var(--line);
 }
@@ -1919,8 +1990,12 @@ code {
   :root {
     --tabbar: 0px;
   }
-  .tabbar {
+  .tabbar,
+  .apphead {
     display: none;
+  }
+  :root {
+    --apphead: 0px;
   }
   .app {
     display: grid;
