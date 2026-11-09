@@ -153,7 +153,7 @@ const OVERVIEW: Block[][] = [
           { date: '2026-11-12', client: 'M. Bernard', objet: 'Visite technique tableau électrique' },
         ],
         manques: ['Le détail des paiements partiels n’est pas fourni par Interfast.'],
-        resume: '3 devis attendent une relance (16 570 € HT) et une facture de 2 160 € a 15 jours de retard.',
+        resume: '19 devis envoyés restent sans réponse pour 72 670,73 € HT, certains datant de la mi-août (D0003, D0002, D0004), et 8 factures restent impayées pour 12 156,68 € TTC, dont F0017 de SARL THERMO FUEL (8 765 €). Le planning est vide pour les 14 prochains jours et aucun devis n’a été signé ce mois-ci.',
       },
     },
   ],

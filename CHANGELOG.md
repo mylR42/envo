@@ -1,5 +1,10 @@
 # Journal des versions
 
+## 0.4.3 — 09/11/2026
+
+- Tableau de bord sur téléphone : la phrase de l’assistante passe dans une carte « Le point du jour », repliée sur deux lignes (« Lire la suite », « Écouter ») — elle en faisait sept et repoussait l’essentiel hors de l’écran.
+- Boutons « Dicter » / « Nouveau devis » à parts égales, indicateurs et priorités plus compacts.
+
 ## 0.4.2 — 09/11/2026
 
 - En-tête de l’appli sur chaque écran (téléphone et tablette) : logo et nom Envo, écran en cours, initiales du compte (mène aux Paramètres). Il reste en haut au défilement ; sur ordinateur, la barre latérale le porte.

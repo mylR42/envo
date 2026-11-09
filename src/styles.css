@@ -975,6 +975,90 @@ code {
 }
 
 /* ---------- Tableau de bord : essentiel d'abord ---------- */
+.brief {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.8rem 0.9rem;
+  border-left: 4px solid var(--navy);
+}
+.brief__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--blue-soft);
+  color: var(--navy);
+}
+.brief__body {
+  min-width: 0;
+  flex: 1;
+}
+.brief__label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.brief__text {
+  margin: 0.15rem 0 0.2rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.brief.is-open .brief__text {
+  display: block;
+}
+.brief__actions {
+  display: flex;
+  gap: 1rem;
+}
+.brief__actions .link-btn {
+  font-size: 0.85rem;
+  padding: 0.25rem 0;
+}
+/* Téléphone : boutons d'action à parts égales, indicateurs plus serrés. */
+@media (max-width: 639px) {
+  .page--dash .page__actions,
+  .page--dash .quick {
+    width: 100%;
+  }
+  .page--dash .quick {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .page--dash .quick .btn {
+    padding-inline: 0.5rem;
+    font-size: 0.95rem;
+  }
+  .page--dash .page__head p {
+    display: none;
+  }
+  .page--dash .page__icon {
+    width: 40px;
+    height: 40px;
+  }
+  .kpi {
+    min-height: 0;
+    padding: 0.7rem 0.75rem;
+  }
+  .kpi strong {
+    font-size: 1.3rem;
+  }
+  .prio {
+    padding: 0.7rem 0.85rem;
+  }
+  .prio__text strong {
+    font-size: 1.05rem;
+  }
+}
+
 .quick {
   display: flex;
   gap: 0.5rem;
@@ -2128,5 +2212,11 @@ code {
 @media (min-width: 1360px) {
   .kpis {
     grid-template-columns: repeat(6, 1fr);
+  }
+}
+
+@media (min-width: 640px) {
+  .brief__text {
+    -webkit-line-clamp: 3;
   }
 }
