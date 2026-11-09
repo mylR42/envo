@@ -88,9 +88,8 @@ export function scriptedLlm(script: Block[][]) {
   } };
 }
 
-export async function setup(opts: { script?: Block[][]; anthropic?: boolean } = {}) {
-  const pg = new PGlite();
-  const db = pgliteDb(pg);
+export async function setup(opts: { script?: Block[][]; anthropic?: boolean; db?: Db } = {}) {
+  const db = opts.db ?? pgliteDb(new PGlite());
   await applySchema(db);
   await applySchema(db); // idempotent
   const sent: Mail[] = [];

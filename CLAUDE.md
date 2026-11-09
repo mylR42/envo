@@ -123,8 +123,17 @@ puis Playwright en iPhone 13 et à 1440 px.
 
 - Vérifier sur un vrai compte Interfast (offre Business) : forme de l'URL MCP,
   passage de la clé, noms et annotations des outils, création réelle d'un devis.
-- Déploiement VPS sur le modèle de Pixo (branche `dist`, `deploy/`, nginx, CSP).
 - Liste blanche des hôtes MCP (rebond DNS, voir `SECURITE.md`).
+
+## Déploiement
+
+Détail dans `DEPLOY.md`. Modèle Pixo : la CI publie la branche `dist` depuis
+`main`, le VPS (`/srv/envo`, port 3880, `envo-api.service`) la tire chaque
+minute, contrôle l'adresse publique et revient en arrière sinon. **Un merge sur
+`main` met en ligne.** On ne compile jamais sur le VPS. ⚠️ `ENVO_SECRET_KEY`
+(dans `/srv/envo/envo.env`) est tirée une fois et ne doit jamais changer.
+nginx : la route `…/turn` n'est pas mise en tampon (SSE, 600 s) ; le micro est
+autorisé (`Permissions-Policy`) — sans lui, plus de dictée.
 
 ## Versions
 

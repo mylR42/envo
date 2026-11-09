@@ -1,5 +1,7 @@
 # Vérifie chaque push et chaque PR : types (navigateur ET serveur), tests, compilation.
-# Le déploiement automatique (branche `dist` tirée par le VPS, comme Pixo) viendra avec la mise en production.
+# Sur main, publie en plus le site ET le serveur compilés dans la branche `dist`,
+# que le VPS récupère tout seul chaque minute (deploy/mise-a-jour.sh). On ne
+# compile JAMAIS sur le VPS : il ne reçoit que des fichiers prêts.
 name: Vérification
 
 on:
@@ -14,6 +16,25 @@ concurrency:
 jobs:
   verifier:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    services:
+      # Un vrai PostgreSQL pour tests/server/postgres.test.ts : PGlite ne passe pas
+      # par le pilote de production.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: envo
+          POSTGRES_PASSWORD: envo
+          POSTGRES_DB: envo
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U envo" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: envo
+      PGPASSWORD: envo
+      PGDATABASE: envo
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,3 +47,29 @@ jobs:
       - run: npm run build
         env:
           VITE_COMMIT: ${{ github.sha }}
+
+      - name: Syntaxe des scripts de déploiement
+        run: for f in deploy/*.sh; do bash -n "$f"; done
+
+      - name: Contrôle du site et du serveur compilés
+        run: |
+          grep -q "content=\"${GITHUB_SHA}\"" dist/index.html
+          node --check dist-server/server.mjs
+
+      - name: Publication dans la branche dist
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          mkdir -p publication/server
+          cp -r dist publication/www
+          cp dist-server/server.mjs publication/server/server.mjs
+          cp -r deploy publication/deploy
+          echo "${GITHUB_SHA}" > publication/COMMIT
+          cd publication
+          git init -q -b dist
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Site et serveur compilés depuis ${GITHUB_SHA}"
+          # Un seul commit, réécrit à chaque fois : la branche ne grossit jamais.
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" dist

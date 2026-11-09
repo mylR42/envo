@@ -1,5 +1,13 @@
 # Journal des versions
 
+## 0.1.1 — 09/11/2026
+
+- Déploiement sur le VPS (modèle Pixo) : la CI publie la branche `dist` depuis `main`, le VPS la tire chaque minute, contrôle public puis retour arrière en cas d’échec. Installation : `deploy/install-vps.sh`, voir `DEPLOY.md`.
+- Micro autorisé par les en-têtes de sécurité ; réponses de l’assistante en flux non mises en tampon par nginx (10 min au plus).
+- Sauvegarde nocturne vérifiée de la base.
+- Test du scénario complet sur un vrai PostgreSQL (CI).
+- Démonstration sur un seul port (`/demo`).
+
 ## 0.1.0 — 07/11/2026
 
 Premier prototype.
