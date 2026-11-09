@@ -1,4 +1,4 @@
-# Envo — l’assistante de l’artisan
+# Envo — votre assistant personnel
 
 Prototype : un artisan prépare ses devis en parlant (ou en écrivant) à une assistante IA branchée sur **Interfast** par MCP. Elle retrouve le client et les devis passés, pose les questions utiles avec des réponses proposées, montre un brouillon chiffré, crée le devis dans Interfast **après validation**, et retient les décisions d’une séance à l’autre.
 

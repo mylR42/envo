@@ -1,5 +1,9 @@
 # Journal des versions
 
+## 0.5.2 — 09/11/2026
+
+- Signature : « Votre assistant personnel » remplace « L’assistante de l’artisan » (écran d’entrée, barre latérale, titre de la page, raccourci d’écran d’accueil, e-mails).
+
 ## 0.5.1 — 09/11/2026
 
 - Portefeuille de devis : une couleur par statut, jamais partagée (« Payé » avait le bleu d’« Envoyé »). Statuts rangés dans l’ordre de vie du devis (brouillon, envoyé, signé, payé, refusé), « Payé » en violet, statuts inconnus réunis en « Autres » (gris), statuts équivalents (« Accepté », « Signé ») additionnés. Ordre et couleurs validés, daltonisme compris.

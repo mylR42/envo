@@ -10,7 +10,7 @@ export function Logo({ size = 32 }: { size?: number }) {
   );
 }
 
-export const TAGLINE = 'L’assistante de l’artisan';
+export const TAGLINE = 'Votre assistant personnel';
 
 export function Brand({ big = false }: { big?: boolean }) {
   return (
