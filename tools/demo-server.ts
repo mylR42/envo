@@ -95,6 +95,36 @@ const OVERVIEW: Block[][] = [
       id: 'ov_3',
       name: 'publier_tableau',
       input: {
+        series: {
+          ca_mensuel: [
+            { mois: '2026-06', montant_ht: 14200 },
+            { mois: '2026-07', montant_ht: 9850 },
+            { mois: '2026-08', montant_ht: 6120 },
+            { mois: '2026-09', montant_ht: 17340 },
+            { mois: '2026-10', montant_ht: 15980 },
+            { mois: '2026-11', montant_ht: 12380 },
+          ],
+          devis_mensuels: [
+            { mois: '2026-06', en_attente: 0, acceptes: 11200, refuses: 2400 },
+            { mois: '2026-07', en_attente: 1200, acceptes: 7300, refuses: 3100 },
+            { mois: '2026-08', en_attente: 4320, acceptes: 2900, refuses: 650 },
+            { mois: '2026-09', en_attente: 5400, acceptes: 9800, refuses: 1800 },
+            { mois: '2026-10', en_attente: 10370, acceptes: 4100, refuses: 180 },
+            { mois: '2026-11', en_attente: 8090, acceptes: 12400, refuses: 0 },
+          ],
+          pipeline: [
+            { statut: 'envoyé', nombre: 7, montant_ht: 18450 },
+            { statut: 'accepté', nombre: 12, montant_ht: 47700 },
+            { statut: 'refusé', nombre: 5, montant_ht: 8130 },
+            { statut: 'brouillon', nombre: 2, montant_ht: 3090 },
+          ],
+          impayes_anciennete: [
+            { tranche: 'Non échues', nombre: 1, montant_ttc: 1080 },
+            { tranche: '1 à 30 j', nombre: 1, montant_ttc: 2160 },
+            { tranche: '31 à 60 j', nombre: 0, montant_ttc: 0 },
+            { tranche: 'Plus de 60 j', nombre: 0, montant_ttc: 0 },
+          ],
+        },
         kpis: [
           { cle: 'devis_en_attente', libelle: 'Devis en attente', valeur: 7, unite: 'nombre', detail: 'envoyés, sans réponse' },
           { cle: 'montant_devis_en_attente', libelle: 'Montant en attente', valeur: 18450, unite: 'eur', detail: 'HT' },

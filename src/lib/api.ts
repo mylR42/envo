@@ -161,6 +161,12 @@ export interface QuoteRow {
   jours: number | null;
 }
 export interface Overview {
+  series: {
+    ca_mensuel: { mois: string; montant_ht: number | null }[];
+    devis_mensuels: { mois: string; en_attente: number | null; acceptes: number | null; refuses: number | null }[];
+    pipeline: { statut: string; nombre: number | null; montant_ht: number | null }[];
+    impayes_anciennete: { tranche: string; nombre: number | null; montant_ttc: number | null }[];
+  };
   kpis: Kpi[];
   devis_a_relancer: QuoteRow[];
   derniers_devis: QuoteRow[];

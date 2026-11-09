@@ -46,3 +46,32 @@ describe.skipIf(!process.env.PGHOST)('PostgreSQL réel', () => {
     }
   });
 });
+
+describe.skipIf(!process.env.PGHOST)('PostgreSQL réel — tableau de bord', () => {
+  it('la recette est un vrai jsonb (pas une chaîne encodée deux fois)', async () => {
+    const db = connectPostgres();
+    for (const t of ['tool_log', 'actions', 'rex', 'messages', 'conversations', 'settings', 'login_challenges', 'pending_signups', 'sessions', 'users']) await db.query(`DROP TABLE IF EXISTS ${t} CASCADE`);
+    await applySchema(db);
+    const publish = { series: { ca_mensuel: [], devis_mensuels: [], pipeline: [], impayes_anciennete: [] }, kpis: [], devis_a_relancer: [], derniers_devis: [], factures_impayees: [], a_venir: [], manques: [], resume: '' };
+    const env = await setup({
+      db,
+      script: [
+        [{ type: 'tool_use', id: 'q1', name: 'if_list_quotes', input: { status: 'sent' } }],
+        [{ type: 'tool_use', id: 'q2', name: 'publier_tableau', input: publish }],
+        [{ type: 'tool_use', id: 'q3', name: 'publier_tableau', input: publish }],
+      ],
+    });
+    try {
+      const c = await signedIn(env);
+      await c.call('PUT', '/api/settings', { mcp_url: MCP_URL, mcp_key: 'cle-secrete' });
+      await c.call('POST', '/api/interfast/overview');
+      const r = (await db.query<{ t: string }>('SELECT jsonb_typeof(overview_recipe) AS t FROM settings'))[0]!;
+      expect(r.t).toBe('array');
+      await c.call('POST', '/api/interfast/overview');
+      expect(env.interfast.calls.map((x) => x.name)).toEqual(['list_quotes', 'list_quotes']);
+      expect(env.scripted.calls).toBe(3);
+    } finally {
+      await db.close();
+    }
+  });
+});

@@ -69,6 +69,16 @@ devis à relancer, factures impayées, derniers devis, à venir, `manques`,
 ⚠️ **Aucun chiffre inventé** : `null` → tiret, et `manques` le dit ; `sanitize()`
 borne tout. Résultat **en mémoire** 30 min par compte (jamais en base),
 `POST /api/interfast/overview` (SSE) pour actualiser, 12 par heure.
+⚠️ **Vitesse** (20 s et plus mesurés sur un vrai compte le 09/11/2026) : la
+« recette » (`settings.overview_recipe` : outils + arguments de la dernière
+collecte, aucune donnée métier) est REJOUÉE en parallèle avant Claude, qui n'a
+plus qu'à publier ; modèle `ANTHROPIC_MODEL_TABLEAU` (Sonnet 5.5 par défaut) ;
+le tableau reste 24 h en mémoire (« à rafraîchir » au-delà de 30 min) et une
+copie vit sur l'appareil (`localStorage`) : l'écran s'affiche tout de suite et
+se met à jour derrière. Changer d'URL Interfast efface la recette.
+Graphiques : `ui/Charts.tsx`, SVG maison (aucune bibliothèque, CSP `'self'`),
+palette `--series-1…4` validée par le script dataviz, couleur FIXE par statut
+(`statusSlot`), vue tableau toujours disponible (bascule `envo.vue`).
 `GET /api/interfast/status` : vrai contact à chaque appel (délai, outils) +
 activité de la semaine (`tool_log`). Les réponses SSE passent par `sse()` :
 `X-Accel-Buffering: no` et un ping toutes les 15 s (nginx coupe à 60 s de silence).

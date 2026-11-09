@@ -51,7 +51,15 @@ export interface EventRow {
   client: string;
   objet: string;
 }
+export interface Series {
+  /** Six derniers mois, du plus ancien au mois en cours. AAAA-MM. */
+  ca_mensuel: { mois: string; montant_ht: number | null }[];
+  devis_mensuels: { mois: string; en_attente: number | null; acceptes: number | null; refuses: number | null }[];
+  pipeline: { statut: string; nombre: number | null; montant_ht: number | null }[];
+  impayes_anciennete: { tranche: string; nombre: number | null; montant_ttc: number | null }[];
+}
 export interface Overview {
+  series: Series;
   kpis: Kpi[];
   devis_a_relancer: QuoteRow[];
   derniers_devis: QuoteRow[];
@@ -126,10 +134,43 @@ export const PUBLISH_TOOL: BetaTool = {
           additionalProperties: false,
         },
       },
+      series: {
+        type: 'object',
+        description: 'Séries pour les graphiques. Mois au format AAAA-MM, les 6 derniers mois du plus ancien au mois en cours. null quand la valeur ne peut pas être calculée ; tableau vide si la série entière est indisponible.',
+        properties: {
+          ca_mensuel: {
+            type: 'array',
+            description: 'Montant HT facturé par mois (date de facture).',
+            items: { type: 'object', properties: { mois: { type: 'string' }, montant_ht: { type: ['number', 'null'] } }, required: ['mois', 'montant_ht'], additionalProperties: false },
+          },
+          devis_mensuels: {
+            type: 'array',
+            description: 'Montant HT des devis émis chaque mois, réparti selon leur statut ACTUEL : en attente (brouillon ou envoyé), acceptés (signés), refusés (refusés ou expirés).',
+            items: {
+              type: 'object',
+              properties: { mois: { type: 'string' }, en_attente: { type: ['number', 'null'] }, acceptes: { type: ['number', 'null'] }, refuses: { type: ['number', 'null'] } },
+              required: ['mois', 'en_attente', 'acceptes', 'refuses'],
+              additionalProperties: false,
+            },
+          },
+          pipeline: {
+            type: 'array',
+            description: 'Tous les devis par statut actuel (brouillon, envoyé, accepté, refusé…), nombre et montant HT.',
+            items: { type: 'object', properties: { statut: { type: 'string' }, nombre: { type: ['integer', 'null'] }, montant_ht: { type: ['number', 'null'] } }, required: ['statut', 'nombre', 'montant_ht'], additionalProperties: false },
+          },
+          impayes_anciennete: {
+            type: 'array',
+            description: 'Factures non payées par ancienneté de l’échéance, exactement ces tranches dans cet ordre : « Non échues », « 1 à 30 j », « 31 à 60 j », « Plus de 60 j ».',
+            items: { type: 'object', properties: { tranche: { type: 'string' }, nombre: { type: ['integer', 'null'] }, montant_ttc: { type: ['number', 'null'] } }, required: ['tranche', 'nombre', 'montant_ttc'], additionalProperties: false },
+          },
+        },
+        required: ['ca_mensuel', 'devis_mensuels', 'pipeline', 'impayes_anciennete'],
+        additionalProperties: false,
+      },
       manques: { type: 'array', items: { type: 'string' }, description: 'Ce qu’Interfast ne permet pas de savoir (une phrase par manque).' },
       resume: { type: 'string', description: 'Deux phrases au plus : ce qui demande l’attention de l’artisan aujourd’hui.' },
     },
-    required: ['kpis', 'devis_a_relancer', 'derniers_devis', 'factures_impayees', 'a_venir', 'manques', 'resume'],
+    required: ['series', 'kpis', 'devis_a_relancer', 'derniers_devis', 'factures_impayees', 'a_venir', 'manques', 'resume'],
     additionalProperties: false,
   },
 };
@@ -163,7 +204,18 @@ const quote = (q: Record<string, unknown>): QuoteRow => ({
 export function sanitize(input: unknown, sources: string[]): Overview {
   const o = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
   const units = new Set(['eur', 'nombre', 'pourcent']);
+  const se = (o.series && typeof o.series === 'object' ? o.series : {}) as Record<string, unknown>;
+  const rows = (v: unknown, max: number) => arr(v, max).map((x) => (x && typeof x === 'object' ? x : {}) as Record<string, unknown>);
+  const month = (v: unknown) => (/^\d{4}-\d{2}$/.test(s(v, 7)) ? s(v, 7) : '');
   return {
+    series: {
+      ca_mensuel: rows(se.ca_mensuel, 12).map((r) => ({ mois: month(r.mois), montant_ht: n(r.montant_ht) })).filter((r) => r.mois),
+      devis_mensuels: rows(se.devis_mensuels, 12)
+        .map((r) => ({ mois: month(r.mois), en_attente: n(r.en_attente), acceptes: n(r.acceptes), refuses: n(r.refuses) }))
+        .filter((r) => r.mois),
+      pipeline: rows(se.pipeline, 8).map((r) => ({ statut: s(r.statut, 40), nombre: n(r.nombre), montant_ht: n(r.montant_ht) })).filter((r) => r.statut),
+      impayes_anciennete: rows(se.impayes_anciennete, 6).map((r) => ({ tranche: s(r.tranche, 40), nombre: n(r.nombre), montant_ttc: n(r.montant_ttc) })).filter((r) => r.tranche),
+    },
     kpis: arr(o.kpis, 12).map((k) => {
       const r = (k ?? {}) as Record<string, unknown>;
       return { cle: s(r.cle, 60), libelle: s(r.libelle, 80), valeur: n(r.valeur), unite: (units.has(String(r.unite)) ? r.unite : 'nombre') as Kpi['unite'], detail: s(r.detail, 120) };
@@ -190,29 +242,77 @@ export function sanitize(input: unknown, sources: string[]): Overview {
 
 /* ---------------- La collecte ---------------- */
 
+/**
+ * La « recette » : les appels Interfast (outil + arguments) qui ont servi à la
+ * dernière collecte réussie. Ce ne sont pas des données métier, seulement la
+ * façon de les lire. À la collecte suivante, ces appels partent TOUT DE SUITE,
+ * en parallèle, sans attendre Claude ; Claude reçoit leurs réponses d'emblée et
+ * n'a plus qu'à publier, d'où un seul passage au lieu de deux ou trois (mesuré
+ * à 20 s et plus sur un vrai compte le 09/11/2026).
+ */
+export interface RecipeCall {
+  tool: string;
+  args: Record<string, unknown>;
+}
+export const RECIPE_MAX = 12;
+
 export interface CollectDeps {
   llm: Llm;
   model: string;
   mcp: McpClient;
   mcpTools: McpTool[];
   today: string;
+  recipe?: RecipeCall[];
   onStatus?(t: string): void;
   logTool(tool: string, ok: boolean, ms: number): Promise<void>;
 }
 
-export async function collectOverview(d: CollectDeps): Promise<Overview> {
-  // ⚠️ Lecture seule : les outils d'écriture ne sont pas proposés.
+export async function collectOverview(d: CollectDeps): Promise<{ overview: Overview; recipe: RecipeCall[] }> {
+  // ⚠️ Lecture seule : les outils d'écriture ne sont pas proposés, ni rejoués.
   const readTools = d.mcpTools.filter((t) => !isWriteTool(t)).sort((a, b) => a.name.localeCompare(b.name));
   if (!readTools.length) throw new McpError('Interfast ne propose aucun outil de lecture : impossible de construire le tableau de bord.');
   const byName = new Map(readTools.map((t) => [modelName(t.name), t]));
+  const byRealName = new Map(readTools.map((t) => [t.name, t]));
   const tools: BetaTool[] = [
     ...readTools.map((t) => ({ name: modelName(t.name), description: (t.description ?? t.title ?? t.name).slice(0, 4000), input_schema: { type: 'object' as const, ...(t.inputSchema ?? {}) } })),
     PUBLISH_TOOL,
   ];
-  const messages: BetaMessageParam[] = [{ role: 'user', content: 'Prépare mon tableau de bord.' }];
   const sources: string[] = [];
+  const used: RecipeCall[] = [];
+  const key = (c: RecipeCall) => `${c.tool}|${JSON.stringify(c.args)}`;
+
+  const call = async (t: McpTool, args: Record<string, unknown>) => {
+    d.onStatus?.(`Interfast : ${t.annotations?.title ?? t.title ?? t.name}…`);
+    const t0 = Date.now();
+    try {
+      const r = await d.mcp.callTool(t.name, args);
+      await d.logTool(t.name, !r.isError, Date.now() - t0);
+      if (!r.isError) {
+        sources.push(t.name);
+        if (!used.some((u) => key(u) === key({ tool: t.name, args }))) used.push({ tool: t.name, args });
+      }
+      return r;
+    } catch (e) {
+      await d.logTool(t.name, false, Date.now() - t0);
+      return { text: e instanceof McpError ? e.message : 'erreur', isError: true };
+    }
+  };
+
+  // 1. La recette de la dernière fois, rejouée en parallèle avant d'appeler Claude.
+  const replay = (d.recipe ?? []).filter((c) => byRealName.has(c.tool)).slice(0, RECIPE_MAX);
+  let intro = 'Prépare mon tableau de bord.';
+  if (replay.length) {
+    d.onStatus?.('Lecture d’Interfast…');
+    const answers = await Promise.all(replay.map(async (c) => ({ c, r: await call(byRealName.get(c.tool)!, c.args) })));
+    intro =
+      'Prépare mon tableau de bord. Voici les réponses d’Interfast aux appels qui ont servi la dernière fois, faits à l’instant. Si elles suffisent, publie directement ; sinon, complète par les appels nécessaires.\n\n' +
+      answers.map(({ c, r }) => `### ${modelName(c.tool)} ${JSON.stringify(c.args)}${r.isError ? ' (ERREUR)' : ''}\n${r.text}`).join('\n\n');
+  }
+  const messages: BetaMessageParam[] = [{ role: 'user', content: intro }];
+
+  // 2. Claude complète si besoin, puis publie.
   for (let step = 0; step < OVERVIEW_MAX_STEPS; step++) {
-    d.onStatus?.(step === 0 ? 'Lecture d’Interfast…' : 'Analyse des données…');
+    d.onStatus?.(step === 0 && !replay.length ? 'Lecture d’Interfast…' : 'Calcul des indicateurs…');
     const res = await d.llm.create({
       model: d.model,
       max_tokens: 16000,
@@ -225,29 +325,17 @@ export async function collectOverview(d: CollectDeps): Promise<Overview> {
     messages.push({ role: 'assistant', content: res.content as BetaContentBlockParam[] });
     const uses = res.content.filter((b) => b.type === 'tool_use');
     const publish = uses.find((b) => b.name === PUBLISH_TOOL.name);
-    if (publish) return sanitize(publish.input, sources);
+    if (publish) return { overview: sanitize(publish.input, sources), recipe: used.slice(0, RECIPE_MAX) };
     if (res.stop_reason !== 'tool_use' || !uses.length) break;
-    const results: BetaToolResultBlockParam[] = [];
-    await Promise.all(
-      uses.map(async (b) => {
+    const results = await Promise.all(
+      uses.map(async (b): Promise<BetaToolResultBlockParam> => {
         const t = byName.get(b.name);
-        if (!t) return void results.push({ type: 'tool_result', tool_use_id: b.id, content: `Outil indisponible : ${b.name}`, is_error: true });
-        d.onStatus?.(`Interfast : ${t.annotations?.title ?? t.title ?? t.name}…`);
-        const t0 = Date.now();
-        try {
-          const r = await d.mcp.callTool(t.name, (b.input && typeof b.input === 'object' ? b.input : {}) as Record<string, unknown>);
-          await d.logTool(t.name, !r.isError, Date.now() - t0);
-          if (!r.isError) sources.push(t.name);
-          results.push({ type: 'tool_result', tool_use_id: b.id, content: r.text, ...(r.isError ? { is_error: true } : {}) });
-        } catch (e) {
-          await d.logTool(t.name, false, Date.now() - t0);
-          results.push({ type: 'tool_result', tool_use_id: b.id, content: e instanceof McpError ? e.message : 'erreur', is_error: true });
-        }
+        if (!t) return { type: 'tool_result', tool_use_id: b.id, content: `Outil indisponible : ${b.name}`, is_error: true };
+        const r = await call(t, (b.input && typeof b.input === 'object' ? b.input : {}) as Record<string, unknown>);
+        return { type: 'tool_result', tool_use_id: b.id, content: r.text, ...(r.isError ? { is_error: true } : {}) };
       }),
     );
-    // Les résultats dans l'ordre des appels : un seul message utilisateur.
-    const order = new Map(uses.map((b, i) => [b.id, i]));
-    results.sort((a, b) => (order.get(a.tool_use_id) ?? 0) - (order.get(b.tool_use_id) ?? 0));
+    // Les résultats dans l'ordre des appels, en un seul message.
     messages.push({ role: 'user', content: results });
   }
   throw new Error('La collecte n’a pas abouti (trop d’étapes ou réponse incomplète).');

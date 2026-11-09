@@ -7,6 +7,12 @@ import { sanitize } from '../../server/overview';
 import { MCP_URL, setup, signedIn } from './helpers';
 
 const PUBLISHED = {
+  series: {
+    ca_mensuel: [{ mois: '2026-10', montant_ht: 9000 }, { mois: '2026-11', montant_ht: 905 }],
+    devis_mensuels: [{ mois: '2026-11', en_attente: 1450, acceptes: 0, refuses: null }],
+    pipeline: [{ statut: 'envoyé', nombre: 1, montant_ht: 1450 }],
+    impayes_anciennete: [],
+  },
   kpis: [
     { cle: 'devis_en_attente', libelle: 'Devis en attente', valeur: 1, unite: 'nombre', detail: '' },
     { cle: 'ca_facture_mois', libelle: 'CA facturé ce mois', valeur: null, unite: 'eur', detail: 'non fourni' },
@@ -46,9 +52,43 @@ describe('tableau de bord Interfast', () => {
     expect(again.json.overview.resume).toBe('Un devis à relancer.');
     expect(env.scripted.calls).toBe(2);
     expect(JSON.stringify(await env.db.query('SELECT * FROM conversations'))).not.toContain('D-2026-0012');
-    // Expiré au bout de 30 minutes.
+    expect(again.json.stale).toBe(false);
+    // Au-delà de 30 minutes : toujours servi (affichage immédiat) mais « à rafraîchir » ; au-delà de 24 h, plus rien.
     env.clock.t = new Date(env.clock.t.getTime() + 31 * 60_000);
+    const old = await c.call('GET', '/api/interfast/overview');
+    expect(old.json.overview).not.toBeNull();
+    expect(old.json.stale).toBe(true);
+    env.clock.t = new Date(env.clock.t.getTime() + 24 * 3600_000);
     expect((await c.call('GET', '/api/interfast/overview')).json.overview).toBeNull();
+  });
+
+  it('la recette : la collecte suivante rejoue les appels d’emblée, en un seul passage de Claude', async () => {
+    const env = await setup({
+      script: [
+        [{ type: 'tool_use', id: 'r1', name: 'if_list_quotes', input: { status: 'sent' } }],
+        [{ type: 'tool_use', id: 'r2', name: 'publier_tableau', input: PUBLISHED }],
+        [{ type: 'tool_use', id: 'r3', name: 'publier_tableau', input: PUBLISHED }],
+      ],
+    });
+    const c = await signedIn(env);
+    await c.call('PUT', '/api/settings', { mcp_url: MCP_URL, mcp_key: 'cle-secrete' });
+    const first = await c.call('POST', '/api/interfast/overview');
+    expect(first.json.overview.series.ca_mensuel).toHaveLength(2);
+    expect(env.scripted.calls).toBe(2);
+    const row = (await env.db.query<{ overview_recipe: unknown }>('SELECT overview_recipe FROM settings'))[0]!;
+    expect(row.overview_recipe).toEqual([{ tool: 'list_quotes', args: { status: 'sent' } }]);
+    // Deuxième collecte : l'appel part AVANT Claude, qui publie au premier passage.
+    await c.call('POST', '/api/interfast/overview');
+    expect(env.scripted.calls).toBe(3);
+    expect(env.interfast.calls.map((x) => x.name)).toEqual(['list_quotes', 'list_quotes']);
+    const intro = JSON.stringify(env.scripted.requests[2]!.messages[0]);
+    expect(intro).toContain('if_list_quotes');
+    expect(intro).toContain('D-2026-0012');
+    // Le tableau de bord passe par le modèle rapide.
+    expect(env.scripted.requests[2]!.model).toBe('claude-sonnet-5-5');
+    // Changer de serveur Interfast oublie la recette.
+    await c.call('PUT', '/api/settings', { mcp_url: 'https://autre.interfast.test/mcp' });
+    expect((await env.db.query<{ overview_recipe: unknown }>('SELECT overview_recipe FROM settings'))[0]!.overview_recipe).toBeNull();
   });
 
   it('un autre compte ne voit pas le tableau', async () => {

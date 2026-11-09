@@ -1,5 +1,14 @@
 # Journal des versions
 
+## 0.4.0 — 09/11/2026
+
+Tableau de bord : l’essentiel d’abord, des graphiques, et plus vite.
+- Le grand pavé « Nouveau devis » laisse la place à deux boutons dans l’en-tête (Dicter, Nouveau devis).
+- « À traiter » en tête : devis à relancer (montant en jeu), impayés, séances à reprendre — un appui y mène.
+- Six indicateurs sur une rangée (grand écran), à l’euro près.
+- « Évolution sur 6 mois », en graphiques OU en tableaux (bascule mémorisée) : CA facturé par mois, devis émis par mois selon leur statut, portefeuille de devis par statut, impayés par ancienneté. Graphiques en SVG maison (aucune bibliothèque), palette validée, info-bulle au survol et au clavier.
+- Vitesse : le dernier tableau s’affiche tout de suite (mémoire du serveur 24 h, copie sur l’appareil) et se rafraîchit derrière s’il a plus de 30 min ; les appels Interfast de la dernière lecture sont rejoués d’emblée, en parallèle, et l’assistante n’a plus qu’à calculer (un passage au lieu de deux ou trois) ; la lecture du tableau passe par un modèle plus rapide (`ANTHROPIC_MODEL_TABLEAU`, Claude Sonnet 5.5 par défaut).
+
 ## 0.3.0 — 09/11/2026
 
 Un vrai tableau de bord, branché sur Interfast.

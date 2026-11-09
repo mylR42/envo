@@ -1,16 +1,20 @@
 /**
- * Tableau de bord : la vision de l'ENTREPRISE (lue dans Interfast) et de la
- * CONNEXION, puis l'activité d'Envo.
+ * Tableau de bord — l'ESSENTIEL D'ABORD (demande du 09/11/2026 : « voir tout de
+ * suite l'essentiel », « le pavé du haut prend beaucoup de place alors que les
+ * devis sont dans le menu »).
  *
- * 1. Nouveau devis (dicter / écrire / faire le point).
- * 2. Interfast : résumé du jour, indicateurs, devis à relancer (un appui lance
- *    une séance de relance), factures impayées, derniers devis, à venir.
- *    Collecte en LECTURE SEULE par l'assistante (server/overview.ts), gardée
- *    30 min ; « Actualiser » la relance. Un chiffre qu'Interfast ne fournit pas
- *    est un tiret, jamais un zéro, et « Ce qu'Interfast ne permet pas de savoir » le liste.
- * 3. Connexion : joignable, délai, outils (lecture / modification), activité de
- *    la semaine, dernière erreur.
- * 4. Envo : séances, devis créés, mémoire, note.
+ *  1. Bonjour + la phrase du jour + actions compactes (dicter, nouveau devis).
+ *  2. À TRAITER : relances, impayés, séances qui m'attendent — gros, cliquables.
+ *  3. Indicateurs (6 tuiles, une rangée sur grand écran).
+ *  4. Évolution : graphiques OU tableaux (bascule mémorisée sur l'appareil).
+ *  5. Listes : relances, impayés, derniers devis, à venir.
+ *  6. Connexion Interfast et activité d'Envo.
+ *
+ * Vitesse : le dernier tableau est affiché TOUT DE SUITE (mémoire du serveur,
+ * sinon copie sur l'appareil), puis rafraîchi derrière s'il a plus de 30 min —
+ * l'écran garde ses chiffres pendant la lecture, sans rien qui saute.
+ * Les données viennent d'Interfast en LECTURE SEULE (server/overview.ts) ; un
+ * chiffre non fourni est un tiret, jamais un zéro.
  */
 import {
   ArrowClockwise,
@@ -19,11 +23,11 @@ import {
   CalendarBlank,
   CaretRight,
   ChartBar,
+  ChartPieSlice,
   ChatCircleDots,
   CheckCircle,
   ClipboardText,
   ClockCounterClockwise,
-  FilePlus,
   FileText,
   HandWaving,
   Hourglass,
@@ -31,18 +35,21 @@ import {
   Lightning,
   Microphone,
   PaperPlaneTilt,
-  PencilSimpleLine,
   Plugs,
   PlugsConnected,
+  Plus,
   Receipt,
   Star,
+  Table,
+  TrendUp,
   Warning,
   WarningCircle,
 } from '@phosphor-icons/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, streamPost, type ConvSummary, type InterfastStatus, type Kpi, type Overview, type User } from '../lib/api';
 import { euros, relDate, STATUS_LABEL, toolLabel } from '../lib/format';
 import { canListen } from '../lib/voice';
+import { BarList, ChartCard, ColumnChart, DataTable, fullEuros, SegmentBar, type Row } from '../ui/Charts';
 import { PageHead } from '../ui/PageHead';
 
 interface Dash {
@@ -50,50 +57,104 @@ interface Dash {
   quotes_month: number;
   waiting: number;
   avg_rating: number | null;
-  validated: number;
-  refused: number;
   rex: number;
-  interfast: { configured: boolean; calls_week: number; errors_week: number; avg_ms: number | null };
+  interfast: { configured: boolean };
   assistant: boolean;
   profile_complete: boolean;
   recent: ConvSummary[];
 }
+type OvState = { overview: Overview | null; at: string | null; stale?: boolean; collecting?: boolean };
+
+const store = {
+  get<T>(k: string): T | null {
+    try {
+      return JSON.parse(localStorage.getItem(k) ?? 'null') as T | null;
+    } catch {
+      return null;
+    }
+  },
+  set(k: string, v: unknown) {
+    try {
+      localStorage.setItem(k, JSON.stringify(v));
+    } catch {
+      /* navigation privée : pas de copie locale */
+    }
+  },
+};
 
 const hello = (name: string) => {
   const h = new Date().getHours();
   const first = name.split(' ')[0] || '';
-  return `${h < 5 || h >= 18 ? 'Bonsoir' : 'Bonjour'}${first ? ` ${first}` : ''}`;
+  const f = first ? ` ${first.charAt(0).toUpperCase()}${first.slice(1).toLowerCase()}` : '';
+  return `${h < 5 || h >= 18 ? 'Bonsoir' : 'Bonjour'}${f}`;
 };
 
 const KPI_ICON: Record<string, typeof FileText> = {
   devis_en_attente: Hourglass,
   montant_devis_en_attente: FileText,
   devis_acceptes_mois: CheckCircle,
-  taux_transformation: ChartBar,
+  taux_transformation: TrendUp,
   ca_facture_mois: Receipt,
   factures_impayees: WarningCircle,
 };
 
+/** Indicateur à l'euro près : les centimes n'aident pas à lire un tableau de bord. */
 function kpiValue(k: Kpi): string {
   if (k.valeur === null) return '–';
-  if (k.unite === 'eur') return euros(k.valeur).replace(/,00\s€$/, ' €');
+  if (k.unite === 'eur') return fullEuros(k.valeur);
   if (k.unite === 'pourcent') return `${k.valeur.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} %`;
   return k.valeur.toLocaleString('fr-FR');
 }
 
+const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+const monthShort = (m: string) => MONTHS[Number(m.slice(5, 7)) - 1] ?? m;
+const monthLong = (m: string) => new Date(`${m}-15`).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
 const day = (iso: string) => {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
 };
 const ms = (v: number | null | undefined) => (v === null || v === undefined ? '–' : v < 1000 ? `${v} ms` : `${(v / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s`);
+const sum = (xs: (number | null)[]) => xs.reduce<number>((a, b) => a + (b ?? 0), 0);
+
+/** Couleur d'un statut de devis : FIXE par statut (jamais par rang), 4 au plus. */
+const statusSlot = (s: string): 1 | 2 | 3 | 4 => (/accept|sign/i.test(s) ? 3 : /refus|expir|perdu|annul/i.test(s) ? 2 : /brouillon|draft/i.test(s) ? 4 : 1);
+
+function Priority({ tone, icon, value, label, href, onClick }: { tone: 'warn' | 'late' | 'info'; icon: ReactNode; value: string; label: string; href?: string; onClick?(): void }) {
+  const inner = (
+    <>
+      <span className="prio__icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="prio__text">
+        <strong>{value}</strong>
+        <span>{label}</span>
+      </span>
+      <CaretRight size={18} className="prio__go" aria-hidden="true" />
+    </>
+  );
+  return href ? (
+    <a className={`prio prio--${tone}`} href={href}>
+      {inner}
+    </a>
+  ) : (
+    <button className={`prio prio--${tone}`} onClick={onClick}>
+      {inner}
+    </button>
+  );
+}
 
 export function Dashboard({ user, assistant, onStart }: { user: User; assistant: boolean; onStart(o?: { text?: string; voice?: boolean }): void }) {
+  const cacheKey = `envo.tdb.${user.id}`;
   const [d, setD] = useState<Dash | null>(null);
   const [status, setStatus] = useState<InterfastStatus | null>(null);
-  const [ov, setOv] = useState<{ overview: Overview | null; at: string | null } | null>(null);
+  const [ov, setOv] = useState<OvState | null>(() => {
+    const c = store.get<OvState>(cacheKey);
+    return c?.overview ? { ...c, stale: true } : null;
+  });
   const [collecting, setCollecting] = useState('');
   const [ovError, setOvError] = useState('');
   const [error, setError] = useState('');
+  const [view, setView] = useState<'graph' | 'table'>(() => (store.get<string>('envo.vue') === 'table' ? 'table' : 'graph'));
   const started = useRef(false);
 
   const collect = useCallback(async () => {
@@ -101,14 +162,16 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
     setCollecting('Lecture d’Interfast…');
     try {
       const r = await streamPost<{ overview: Overview; at: string }>('/api/interfast/overview', {}, setCollecting, 'La lecture a été coupée. Réessayez.');
-      setOv(r);
+      const next = { overview: r.overview, at: r.at, stale: false };
+      setOv(next);
+      store.set(cacheKey, next);
       api.get<InterfastStatus>('/api/interfast/status').then(setStatus, () => {});
     } catch (e) {
       setOvError((e as Error).message);
     } finally {
       setCollecting('');
     }
-  }, []);
+  }, [cacheKey]);
 
   useEffect(() => {
     api.get<Dash>('/api/dashboard').then(setD, (e: Error) => setError(e.message));
@@ -116,110 +179,123 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
       (s) => (setStatus(s), s),
       () => null,
     );
-    const o = api.get<{ overview: Overview | null; at: string | null; collecting: boolean }>('/api/interfast/overview').then(
-      (r) => (setOv(r), r),
+    const o = api.get<OvState>('/api/interfast/overview').then(
+      (r) => {
+        if (r.overview) {
+          setOv(r);
+          store.set(cacheKey, r);
+        }
+        return r;
+      },
       () => null,
     );
-    // Premier passage sans tableau en mémoire : la collecte part toute seule, si Interfast répond.
+    // Rien en mémoire, ou plus de 30 min : la lecture part toute seule, l'écran garde ce qu'il montre.
     void Promise.all([st, o]).then(([s, r]) => {
-      if (!started.current && assistant && s?.ok && r && !r.overview && !r.collecting) {
+      if (!started.current && assistant && s?.ok && r && (!r.overview || r.stale) && !r.collecting) {
         started.current = true;
         void collect();
       }
     });
-  }, [assistant, collect]);
+  }, [assistant, collect, cacheKey]);
+
+  const switchView = (v: 'graph' | 'table') => {
+    setView(v);
+    store.set('envo.vue', v);
+  };
 
   const relancer = (q: Overview['devis_a_relancer'][number]) =>
     onStart({ text: `Aide-moi à relancer le devis ${q.ref} de ${q.client} (${q.objet}${q.montant_ht !== null ? `, ${q.montant_ht} € HT` : ''}), envoyé il y a ${q.jours ?? '?'} jours : propose-moi un message de relance.` });
-
-  const setup = d
-    ? ([
-        !d.assistant && { text: 'L’assistante n’est pas encore activée sur le serveur (clé Anthropic).', href: null },
-        !d.interfast.configured && { text: 'Connectez Interfast : collez l’URL du serveur MCP et votre clé API.', href: '#/parametres/interfast' },
-        !d.profile_complete && { text: 'Renseignez entreprise, métier et taux horaire : l’assistante chiffrera juste dès le départ.', href: '#/parametres/entreprise' },
-      ].filter(Boolean) as { text: string; href: string | null }[])
-    : [];
+  const goTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   const o = ov?.overview ?? null;
   const connected = status?.ok === true;
+  const kpi = (k: string) => o?.kpis.find((x) => x.cle === k) ?? null;
+  const toFollow = o?.devis_a_relancer ?? [];
+  const unpaid = kpi('factures_impayees');
+  const missingProfile = d && !d.profile_complete;
+
+  /* Séries des graphiques */
+  const sr = o?.series;
+  const caRows: Row[] = (sr?.ca_mensuel ?? []).map((m) => ({ label: monthShort(m.mois), full: monthLong(m.mois), values: { ca: m.montant_ht } }));
+  const devisRows: Row[] = (sr?.devis_mensuels ?? []).map((m) => ({ label: monthShort(m.mois), full: monthLong(m.mois), values: { acceptes: m.acceptes, en_attente: m.en_attente, refuses: m.refuses } }));
+  const devisSeries = [
+    { key: 'acceptes', label: 'Acceptés', slot: 3 as const },
+    { key: 'en_attente', label: 'En attente', slot: 1 as const },
+    { key: 'refuses', label: 'Refusés', slot: 2 as const },
+  ];
+  const pipe = [...(sr?.pipeline ?? [])].filter((p) => (p.montant_ht ?? 0) > 0).sort((a, b) => (b.montant_ht ?? 0) - (a.montant_ht ?? 0));
+  const ageRows: Row[] = (sr?.impayes_anciennete ?? []).map((t) => ({ label: t.tranche, values: { montant: t.montant_ttc, nombre: t.nombre } }));
+  const allNull = (rows: Row[]) => rows.length === 0 || rows.every((r) => Object.values(r.values).every((v) => v === null));
 
   return (
-    <div className="page">
+    <div className="page page--dash">
       <PageHead
         icon={HandWaving}
         title={hello(user.name)}
         actions={
-          connected && assistant ? (
-            <button className="btn btn--outline btn--small" onClick={collect} disabled={!!collecting}>
-              <ArrowClockwise size={18} className={collecting ? 'spin' : ''} /> Actualiser
+          <div className="quick">
+            {canListen() && (
+              <button className="btn btn--accent" onClick={() => onStart({ voice: true })} disabled={!assistant}>
+                <Microphone size={20} /> Dicter un devis
+              </button>
+            )}
+            <button className="btn btn--primary" onClick={() => onStart()} disabled={!assistant}>
+              <Plus size={20} /> Nouveau devis
             </button>
-          ) : undefined
+          </div>
         }
       >
         {o?.resume || 'Que prépare-t-on aujourd’hui ?'}
       </PageHead>
 
-      <section className="hero card">
-        <div className="hero__text">
-          <h2>
-            <FilePlus size={24} weight="light" /> Nouveau devis
-          </h2>
-          <p>Décrivez le chantier : l’assistante retrouve le client et vos devis passés dans Interfast, pose les questions utiles et propose le chiffrage.</p>
-        </div>
-        <div className="hero__actions">
-          {canListen() && (
-            <button className="btn btn--accent btn--big" onClick={() => onStart({ voice: true })} disabled={!assistant}>
-              <Microphone size={24} /> Dicter un devis
-            </button>
-          )}
-          <button className="btn btn--primary btn--big" onClick={() => onStart()} disabled={!assistant}>
-            <PencilSimpleLine size={24} /> Écrire un devis
-          </button>
-          <button className="btn btn--ghost" onClick={() => onStart({ text: 'Fais-moi le point sur mes devis en cours dans Interfast : ceux en attente de réponse, à relancer, et les plus anciens.' })} disabled={!assistant}>
-            <ClipboardText size={20} /> Faire le point avec l’assistante
-          </button>
-        </div>
-      </section>
-
       {error && <p className="alert alert--error">{error}</p>}
+      {d && !d.assistant && <p className="alert alert--warn">L’assistante n’est pas activée sur le serveur (clé Anthropic absente).</p>}
+      {d && !d.interfast.configured && (
+        <a className="alert alert--info alert--link" href="#/parametres/interfast">
+          <Plugs size={18} /> Connectez Interfast pour voir votre activité ici. <ArrowRight size={16} />
+        </a>
+      )}
 
-      {setup.length > 0 && (
-        <section className="card setup">
-          <h2>
-            <Warning size={20} /> Pour bien démarrer
-          </h2>
-          <ul>
-            {setup.map((s) => (
-              <li key={s.text}>
-                {s.href ? (
-                  <a href={s.href}>
-                    {s.text} <ArrowRight size={14} />
-                  </a>
-                ) : (
-                  s.text
-                )}
-              </li>
-            ))}
-          </ul>
+      {/* ---------- À traiter ---------- */}
+      {(toFollow.length > 0 || (unpaid?.valeur ?? 0) > 0 || (d?.waiting ?? 0) > 0) && (
+        <section className="prios" aria-label="À traiter">
+          {toFollow.length > 0 && (
+            <Priority
+              tone="warn"
+              icon={<PaperPlaneTilt size={24} />}
+              value={`${toFollow.length} devis à relancer`}
+              label={`${fullEuros(sum(toFollow.map((q) => q.montant_ht)))} HT en jeu`}
+              onClick={() => goTo('relances')}
+            />
+          )}
+          {unpaid && (unpaid.valeur ?? 0) > 0 && (
+            <Priority tone="late" icon={<WarningCircle size={24} />} value={`${fullEuros(unpaid.valeur)} impayés`} label={unpaid.detail || 'factures non réglées'} onClick={() => goTo('impayes')} />
+          )}
+          {(d?.waiting ?? 0) > 0 && <Priority tone="info" icon={<Hourglass size={24} />} value={`${d!.waiting} séance${d!.waiting > 1 ? 's' : ''} à reprendre`} label="l’assistante attend votre réponse" href="#/devis" />}
         </section>
       )}
 
-      {/* ---------------- Interfast : l'entreprise ---------------- */}
+      {/* ---------- Interfast ---------- */}
       {connected && (
-        <section className="biz" aria-label="Mon activité dans Interfast">
+        <div className={`biz${collecting && o ? ' is-refreshing' : ''}`}>
           <div className="biz__head">
             <h2>
-              <ChartBar size={22} weight="light" /> Mon activité dans Interfast
+              <ChartBar size={22} weight="light" /> Mon activité
             </h2>
-            <span className="muted biz__when">
+            <span className="biz__when">
               {collecting ? (
                 <>
                   <span className="dots" aria-hidden="true" /> {collecting}
                 </>
               ) : ov?.at ? (
-                `Données de ${new Date(ov.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+                `Interfast · ${new Date(ov.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
               ) : null}
             </span>
+            {assistant && (
+              <button className="icon-btn icon-btn--sm" onClick={collect} disabled={!!collecting} aria-label="Actualiser depuis Interfast" title="Actualiser depuis Interfast">
+                <ArrowClockwise size={18} className={collecting ? 'spin' : ''} />
+              </button>
+            )}
           </div>
 
           {ovError && (
@@ -231,7 +307,7 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
           {!o && !collecting && !ovError && assistant && (
             <div className="card empty">
               <ChartBar size={36} weight="light" />
-              <p>Le tableau de bord se construit en lisant Interfast (une minute environ).</p>
+              <p>Votre tableau de bord se construit en lisant Interfast.</p>
               <button className="btn btn--primary" onClick={collect}>
                 <Lightning size={18} /> Lire Interfast maintenant
               </button>
@@ -257,41 +333,119 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
                           <I size={18} /> {k.libelle}
                         </span>
                         <strong className={k.valeur === null ? 'is-unknown' : ''}>{kpiValue(k)}</strong>
-                        {k.detail && <span className="kpi__detail">{k.detail}</span>}
+                        <span className="kpi__detail">{k.detail || ' '}</span>
                       </div>
                     );
                   })}
                 </div>
               )}
 
+              {/* ---------- Évolution ---------- */}
+              <div className="section-head">
+                <h2>
+                  <TrendUp size={20} /> Évolution sur 6 mois
+                </h2>
+                <div className="segmented" role="group" aria-label="Affichage">
+                  <button className={view === 'graph' ? 'is-on' : ''} aria-pressed={view === 'graph'} onClick={() => switchView('graph')}>
+                    <ChartBar size={16} /> Graphiques
+                  </button>
+                  <button className={view === 'table' ? 'is-on' : ''} aria-pressed={view === 'table'} onClick={() => switchView('table')}>
+                    <Table size={16} /> Tableaux
+                  </button>
+                </div>
+              </div>
+              <div className="charts">
+                <ChartCard
+                  icon={<Receipt size={18} />}
+                  title="CA facturé"
+                  sub="par mois, HT"
+                  view={view}
+                  empty={allNull(caRows) ? 'Non disponible depuis Interfast.' : null}
+                  chart={<ColumnChart rows={caRows} series={[{ key: 'ca', label: 'CA facturé HT', slot: 1 }]} caption="CA facturé HT par mois" />}
+                  table={<DataTable rows={caRows} cols={[{ key: 'ca', label: 'CA HT' }]} total />}
+                />
+                <ChartCard
+                  icon={<FileText size={18} />}
+                  title="Devis émis"
+                  sub="montant HT par mois, selon leur statut aujourd’hui"
+                  view={view}
+                  empty={allNull(devisRows) ? 'Non disponible depuis Interfast.' : null}
+                  chart={<ColumnChart rows={devisRows} series={devisSeries} caption="Devis émis par mois" />}
+                  table={<DataTable rows={devisRows} cols={devisSeries.map((s) => ({ key: s.key, label: s.label }))} total />}
+                />
+                <ChartCard
+                  icon={<ChartPieSlice size={18} />}
+                  title="Portefeuille de devis"
+                  sub="montant HT par statut"
+                  view={view}
+                  empty={pipe.length === 0 ? 'Non disponible depuis Interfast.' : null}
+                  chart={
+                    <SegmentBar
+                      caption="Devis par statut"
+                      parts={pipe.slice(0, 4).map((p) => ({ label: p.statut.charAt(0).toUpperCase() + p.statut.slice(1), value: p.montant_ht ?? 0, slot: statusSlot(p.statut), detail: p.nombre !== null ? `${p.nombre} devis` : undefined }))}
+                    />
+                  }
+                  table={
+                    <DataTable
+                      rows={pipe.map((p) => ({ label: p.statut, values: { nombre: p.nombre, montant: p.montant_ht } }))}
+                      cols={[
+                        { key: 'nombre', label: 'Nombre' },
+                        { key: 'montant', label: 'Montant HT' },
+                      ]}
+                      format={(v) => (v === null ? '–' : v >= 1000 || !Number.isInteger(v) ? fullEuros(v) : String(v))}
+                    />
+                  }
+                />
+                <ChartCard
+                  icon={<WarningCircle size={18} />}
+                  title="Impayés par ancienneté"
+                  sub="TTC, selon l’échéance"
+                  view={view}
+                  empty={allNull(ageRows) ? 'Non disponible depuis Interfast.' : null}
+                  chart={<BarList rows={ageRows} valueKey="montant" caption="Impayés par ancienneté" extra={(r) => (r.values.nombre ? `${r.values.nombre} fact.` : '')} />}
+                  table={
+                    <DataTable
+                      rows={ageRows}
+                      cols={[
+                        { key: 'nombre', label: 'Factures' },
+                        { key: 'montant', label: 'Montant TTC' },
+                      ]}
+                      format={(v) => (v === null ? '–' : v >= 100 || !Number.isInteger(v) ? fullEuros(v) : String(v))}
+                    />
+                  }
+                />
+              </div>
+
+              {/* ---------- Listes ---------- */}
               <div className="grid2">
-                <section className="card">
+                <section className="card" id="relances">
                   <h2>
                     <PaperPlaneTilt size={20} /> Devis à relancer
-                    {o.devis_a_relancer.length > 0 && <span className="h2__aside">{o.devis_a_relancer.length}</span>}
+                    {toFollow.length > 0 && <span className="h2__aside">{toFollow.length}</span>}
                   </h2>
-                  {o.devis_a_relancer.length === 0 ? (
+                  {toFollow.length === 0 ? (
                     <p className="muted">Aucun devis en attente depuis plus de 7 jours.</p>
                   ) : (
                     <ul className="list">
-                      {o.devis_a_relancer.map((q) => (
+                      {toFollow.map((q) => (
                         <li key={q.ref + q.client}>
                           <button className="list__btn" onClick={() => relancer(q)} disabled={!assistant}>
                             <span className="list__icon list__icon--warn" aria-hidden="true">
                               <Hourglass size={20} />
                             </span>
                             <span className="list__body">
-                              <span className="list__title">
-                                {q.client} — {q.objet || q.ref}
-                              </span>
+                              <span className="list__title">{q.client}</span>
+                              <span className="list__sub">{q.objet}</span>
                               <span className="list__meta">
                                 {q.ref}
-                                {q.montant_ht !== null && <> · {euros(q.montant_ht)} HT</>}
-                                {q.jours !== null && <span className="badge badge--warn">{q.jours} j sans réponse</span>}
+                                {q.jours !== null && <span className="badge badge--warn">{q.jours} j</span>}
                               </span>
                             </span>
-                            <span className="list__cta">
-                              Relancer <CaretRight size={16} />
+                            <span className="list__end">
+                              <strong className="list__amount">{q.montant_ht !== null ? fullEuros(q.montant_ht) : '–'}</strong>
+                              <span className="list__cta">
+                                Relancer <CaretRight size={14} />
+                              </span>
                             </span>
                           </button>
                         </li>
@@ -300,9 +454,10 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
                   )}
                 </section>
 
-                <section className="card">
+                <section className="card" id="impayes">
                   <h2>
                     <Receipt size={20} /> Factures impayées
+                    {o.factures_impayees.length > 0 && <span className="h2__aside">{o.factures_impayees.length}</span>}
                   </h2>
                   {o.factures_impayees.length === 0 ? (
                     <p className="muted">{o.manques.some((m) => /factur/i.test(m)) ? 'Non disponible depuis Interfast.' : 'Aucune facture impayée.'}</p>
@@ -317,7 +472,7 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
                             <span className="list__title">{f.client}</span>
                             <span className="list__meta">
                               {f.ref}
-                              {f.echeance && <> · échéance {day(f.echeance)}</>}
+                              {f.echeance && <> · éch. {day(f.echeance)}</>}
                               {f.jours_retard ? <span className="badge badge--late">{f.jours_retard} j de retard</span> : null}
                             </span>
                           </span>
@@ -338,19 +493,18 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
                     <ul className="list">
                       {o.derniers_devis.map((q) => (
                         <li key={q.ref + q.client} className="list__static">
-                          <span className={`list__icon list__icon--${/accept|sign/i.test(q.statut) ? 'devis_cree' : /refus/i.test(q.statut) ? 'termine' : 'en_cours'}`} aria-hidden="true">
+                          <span className={`list__icon list__icon--s${statusSlot(q.statut)}`} aria-hidden="true">
                             <FileText size={20} />
                           </span>
                           <span className="list__body">
-                            <span className="list__title">
-                              {q.client} — {q.objet || q.ref}
-                            </span>
+                            <span className="list__title">{q.client}</span>
+                            <span className="list__sub">{q.objet}</span>
                             <span className="list__meta">
                               <span className="badge">{q.statut || '?'}</span>
                               {q.date && day(q.date)}
                             </span>
                           </span>
-                          <strong className="list__amount">{q.montant_ht !== null ? euros(q.montant_ht) : '–'}</strong>
+                          <strong className="list__amount">{q.montant_ht !== null ? fullEuros(q.montant_ht) : '–'}</strong>
                         </li>
                       ))}
                     </ul>
@@ -359,7 +513,7 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
 
                 <section className="card">
                   <h2>
-                    <CalendarBlank size={20} /> À venir (14 jours)
+                    <CalendarBlank size={20} /> À venir · 14 jours
                   </h2>
                   {o.a_venir.length === 0 ? (
                     <p className="muted">{o.manques.some((m) => /planning|interven|agenda|chantier/i.test(m)) ? 'Planning non disponible depuis Interfast.' : 'Rien de planifié.'}</p>
@@ -393,10 +547,10 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
               )}
             </>
           )}
-        </section>
+        </div>
       )}
 
-      {/* ---------------- Connexion et activité d'Envo ---------------- */}
+      {/* ---------- Connexion et Envo ---------- */}
       <div className="grid2">
         <section className={`card conn${status && status.configured && !status.ok ? ' conn--down' : ''}`}>
           <h2>
@@ -413,10 +567,6 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
               <div>
                 <dt>Serveur</dt>
                 <dd>{status.host}</dd>
-              </div>
-              <div>
-                <dt>Clé</dt>
-                <dd>{status.keyHint || 'dans l’URL'}</dd>
               </div>
               {connected && (
                 <>
@@ -440,12 +590,6 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
                   {status.week.errors > 0 && <span className="badge badge--late">{status.week.errors} en erreur</span>}
                 </dd>
               </div>
-              {status.week.last_ok && (
-                <div>
-                  <dt>Dernier échange réussi</dt>
-                  <dd>{relDate(status.week.last_ok)}</dd>
-                </div>
-              )}
               {status.week.last_error && (
                 <div>
                   <dt>Dernière erreur</dt>
@@ -477,9 +621,6 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
           </h2>
           {d && (
             <div className="minis">
-              <a href="#/devis" className={d.waiting ? 'is-alert' : ''}>
-                <Hourglass size={18} /> <strong>{d.waiting}</strong> à votre tour
-              </a>
               <span>
                 <CheckCircle size={18} /> <strong>{d.quotes_month}</strong> devis créés ce mois
               </span>
@@ -489,12 +630,19 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
               <a href="#/parametres/memoire">
                 <Brain size={18} /> <strong>{d.rex}</strong> choses retenues
               </a>
+              <button className="minis__btn" onClick={() => onStart({ text: 'Fais-moi le point sur mes devis en cours dans Interfast : ceux en attente de réponse, à relancer, et les plus anciens.' })} disabled={!assistant}>
+                <ClipboardText size={18} /> Faire le point
+              </button>
             </div>
           )}
-          {d && d.recent.length === 0 && <p className="muted">Aucune séance pour l’instant.</p>}
+          {missingProfile && (
+            <a className="alert alert--info alert--link" href="#/parametres/entreprise">
+              <Info size={16} /> Renseignez entreprise, métier et taux horaire pour des chiffrages justes. <ArrowRight size={14} />
+            </a>
+          )}
           {d && d.recent.length > 0 && (
             <ul className="list">
-              {d.recent.map((c) => (
+              {d.recent.slice(0, 4).map((c) => (
                 <li key={c.id}>
                   <a href={`#/devis/${c.id}`}>
                     <span className={`list__icon list__icon--${c.waiting ? 'warn' : c.status}`} aria-hidden="true">

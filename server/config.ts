@@ -17,7 +17,12 @@ export interface Config {
   commit: string;
   /** Clé de 32 octets dérivée d'ENVO_SECRET_KEY. */
   secretKey: Buffer;
-  anthropic: { apiKey: string; model: string; effort: 'low' | 'medium' | 'high' } | null;
+  /**
+   * `overviewModel` lit Interfast pour le tableau de bord : une tâche de lecture
+   * et de calcul, où la vitesse compte (demande du 09/11/2026 : « corrige ce temps
+   * de réponse »). Les devis restent sur `model`.
+   */
+  anthropic: { apiKey: string; model: string; overviewModel: string; effort: 'low' | 'medium' | 'high' } | null;
   mail: { apiKey: string; secretKey: string; from: string; fromName: string } | null;
 }
 
@@ -38,7 +43,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const secretKey = createHash('sha256').update(raw || 'envo-dev-uniquement').digest();
   const effort = env.ANTHROPIC_EFFORT === 'low' || env.ANTHROPIC_EFFORT === 'high' ? env.ANTHROPIC_EFFORT : 'medium';
   const anthropic = env.ANTHROPIC_API_KEY?.trim()
-    ? { apiKey: env.ANTHROPIC_API_KEY.trim(), model: env.ANTHROPIC_MODEL?.trim() || 'claude-opus-5-5', effort: effort as 'low' | 'medium' | 'high' }
+    ? { apiKey: env.ANTHROPIC_API_KEY.trim(), model: env.ANTHROPIC_MODEL?.trim() || 'claude-opus-5-5', overviewModel: env.ANTHROPIC_MODEL_TABLEAU?.trim() || 'claude-sonnet-5-5', effort: effort as 'low' | 'medium' | 'high' }
     : null;
   const mail =
     env.MAILJET_API_KEY && env.MAILJET_SECRET_KEY && env.MAIL_FROM

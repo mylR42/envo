@@ -28,7 +28,7 @@ import { DUMMY_HASH, PASSWORD_MIN, deviceLabel, hashPassword, isEmail, isUuid, n
 import { runTurn, type ActionState, type Answer, type Llm, type Pending } from './agent';
 import { SYSTEM_PROMPT, sessionContext, type ArtisanSettings, type PastSession, type RexItem } from './prompt';
 import { toView } from './view';
-import { collectOverview, OVERVIEW_TTL_MS, type Overview } from './overview';
+import { collectOverview, OVERVIEW_TTL_MS, type Overview, type RecipeCall } from './overview';
 
 export interface Deps {
   cfg: Config;
@@ -471,6 +471,8 @@ export function createApp(deps: Deps) {
       keyEnc = encrypt(cfg.secretKey, k);
       keyHint = hint(k);
     }
+    // Autre serveur Interfast : les appels mémorisés pour le tableau de bord ne valent plus.
+    if (mcpUrl !== cur.mcp_url) await db.query('UPDATE settings SET overview_recipe = NULL WHERE user_id = $1', [u.id]);
     const name = typeof b.name === 'string' ? str(b.name, 80) : u.name;
     await db.query('UPDATE users SET name = $2 WHERE id = $1', [u.id, name]);
     const pick = (k: string, cur: number | null) => (k in b ? num(b[k]) : cur);
@@ -787,8 +789,15 @@ export function createApp(deps: Deps) {
     if (!u) return unauthorized(c);
     const s = await loadSettings(u.id);
     const o = overviews.get(u.id);
-    const fresh = o && o.key === `${s.mcp_url}|${s.mcp_key_hint}` && now().getTime() - o.at < OVERVIEW_TTL_MS;
-    return c.json({ overview: fresh ? o.data : null, at: fresh ? new Date(o.at) : null, collecting: collecting.has(u.id), assistant: llm !== null });
+    // Gardé 24 h en mémoire : au-delà de 30 min il est « à rafraîchir » (affiché tout de suite, actualisé derrière).
+    const usable = o && o.key === `${s.mcp_url}|${s.mcp_key_hint}` && now().getTime() - o.at < 24 * 3600_000;
+    return c.json({
+      overview: usable ? o.data : null,
+      at: usable ? new Date(o.at) : null,
+      stale: !usable || now().getTime() - o.at >= OVERVIEW_TTL_MS,
+      collecting: collecting.has(u.id),
+      assistant: llm !== null,
+    });
   });
 
   /** Collecte (en flux SSE : « status » puis « done »). Lecture seule dans Interfast. */
@@ -806,11 +815,13 @@ export function createApp(deps: Deps) {
     return sse(c, async (stream) => {
       try {
         const tools = await toolsFor(u.id, s, mcp);
-        const data = await collectOverview({
+        const recipeRow = (await db.query<{ overview_recipe: RecipeCall[] | null }>('SELECT overview_recipe FROM settings WHERE user_id = $1', [u.id]))[0];
+        const { overview: data, recipe } = await collectOverview({
           llm,
-          model: anthropic.model,
+          model: anthropic.overviewModel,
           mcp,
           mcpTools: tools,
+          recipe: Array.isArray(recipeRow?.overview_recipe) ? recipeRow.overview_recipe : [],
           today: now().toISOString().slice(0, 10),
           onStatus: (t) => void stream.writeSSE({ event: 'status', data: t }).catch(() => {}),
           logTool: async (tool, ok, ms) => {
@@ -819,6 +830,7 @@ export function createApp(deps: Deps) {
         });
         const at = now().getTime();
         overviews.set(u.id, { at, key: `${s.mcp_url}|${s.mcp_key_hint}`, data });
+        if (recipe.length) await db.query('UPDATE settings SET overview_recipe = $2::text::jsonb WHERE user_id = $1', [u.id, JSON.stringify(recipe)]);
         await stream.writeSSE({ event: 'done', data: JSON.stringify({ overview: data, at: new Date(at) }) }).catch(() => {});
       } catch (e) {
         console.error('tableau Interfast :', (e as Error).message);
