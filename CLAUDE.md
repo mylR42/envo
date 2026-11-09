@@ -98,7 +98,7 @@ server/db.ts       schéma (créations idempotentes ; évolutions en ADD COLUMN 
 src/screens/       AuthScreen, Dashboard, AssistDevis, Settings
 src/lib/           api (dont le flux SSE), voice, format (totaux du brouillon)
 tests/server/      l'API sur PGlite avec faux Claude et faux serveur MCP Interfast
-tools/demo-server.ts  serveur de démonstration pour regarder les écrans (exclu du déploiement)
+tools/demo-server.ts  démo sur un port (interface + API, /demo = connecté d'office, scénario rejoué par séance) — exclu du déploiement
 ```
 
 React 19 + TypeScript strict + Vite ; Node 22 + Hono + `postgres` ; serveur
