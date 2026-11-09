@@ -56,6 +56,7 @@ import { euros, relDate, STATUS_LABEL, toolLabel } from '../lib/format';
 import { canListen, canSpeak, speak, stopSpeaking } from '../lib/voice';
 import { BarList, ChartCard, ColumnChart, DataTable, fullEuros, SegmentBar, type Row } from '../ui/Charts';
 import { PageHead } from '../ui/PageHead';
+import { groupPipeline, statusFamily } from '../lib/status';
 
 interface Dash {
   sessions_month: number;
@@ -122,7 +123,8 @@ const ms = (v: number | null | undefined) => (v === null || v === undefined ? '�
 const sum = (xs: (number | null)[]) => xs.reduce<number>((a, b) => a + (b ?? 0), 0);
 
 /** Couleur d'un statut de devis : FIXE par statut (jamais par rang), 4 au plus. */
-const statusSlot = (s: string): 1 | 2 | 3 | 4 => (/accept|sign/i.test(s) ? 3 : /refus|expir|perdu|annul/i.test(s) ? 2 : /brouillon|draft/i.test(s) ? 4 : 1);
+/** Couleur d'un statut : par FAMILLE (lib/status.ts), jamais par rang, jamais partagée. */
+const statusSlot = (s: string) => statusFamily(s).slot;
 
 /**
  * Le point du jour, écrit par l'assistante : replié sur deux lignes (il peut
@@ -413,7 +415,7 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
     { key: 'en_attente', label: 'En attente', slot: 1 as const },
     { key: 'refuses', label: 'Refusés', slot: 2 as const },
   ];
-  const pipe = [...(sr?.pipeline ?? [])].filter((p) => (p.montant_ht ?? 0) > 0).sort((a, b) => (b.montant_ht ?? 0) - (a.montant_ht ?? 0));
+  const pipe = groupPipeline(sr?.pipeline ?? []);
   const ageRows: Row[] = (sr?.impayes_anciennete ?? []).map((t) => ({ label: t.tranche, values: { montant: t.montant_ttc, nombre: t.nombre } }));
   const allNull = (rows: Row[]) => rows.length === 0 || rows.every((r) => Object.values(r.values).every((v) => v === null));
 
@@ -571,12 +573,12 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
                   chart={
                     <SegmentBar
                       caption="Devis par statut"
-                      parts={pipe.slice(0, 4).map((p) => ({ label: p.statut.charAt(0).toUpperCase() + p.statut.slice(1), value: p.montant_ht ?? 0, slot: statusSlot(p.statut), detail: p.nombre !== null ? `${p.nombre} devis` : undefined }))}
+                      parts={pipe.map((p) => ({ label: p.label, value: p.montant_ht, slot: p.slot, detail: [p.nombre !== null ? `${p.nombre} devis` : '', p.sources.length > 1 || p.key === 'autres' ? p.sources.join(', ') : ''].filter(Boolean).join(' · ') || undefined }))}
                     />
                   }
                   table={
                     <DataTable
-                      rows={pipe.map((p) => ({ label: p.statut, values: { nombre: p.nombre, montant: p.montant_ht } }))}
+                      rows={pipe.map((p) => ({ label: p.label, values: { nombre: p.nombre, montant: p.montant_ht } }))}
                       cols={[
                         { key: 'nombre', label: 'Nombre' },
                         { key: 'montant', label: 'Montant HT' },

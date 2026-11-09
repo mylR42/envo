@@ -11,6 +11,10 @@
   --series-2: #eb6834;
   --series-3: #1baf7a;
   --series-4: #eda100;
+  /* Statut « Payé » ; ordre brouillon·envoyé·signé·payé·refusé validé (daltonisme compris). */
+  --series-5: #6250d6;
+  /* « Autres » : gris, ne se confond avec aucune famille. */
+  --series-0: #9aa3b2;
   --grid: #e8ebf0;
   --axis: #c3c8d2;
   --ink: #0f172a;
@@ -1383,12 +1387,16 @@ code {
 .fill-2 { fill: var(--series-2); background: var(--series-2); }
 .fill-3 { fill: var(--series-3); background: var(--series-3); }
 .fill-4 { fill: var(--series-4); background: var(--series-4); }
+.fill-5 { fill: var(--series-5); background: var(--series-5); }
+.fill-0 { fill: var(--series-0); background: var(--series-0); }
 .stroke-1 { background: var(--series-1); }
 .stroke-2 { background: var(--series-2); }
 .stroke-3 { background: var(--series-3); }
 .stroke-4 { background: var(--series-4); }
-.ink-on-1, .ink-on-2, .ink-on-3 { color: #fff; }
-.ink-on-4 { color: #0b0b0b; }
+.stroke-5 { background: var(--series-5); }
+.stroke-0 { background: var(--series-0); }
+.ink-on-1, .ink-on-2, .ink-on-3, .ink-on-5 { color: #fff; }
+.ink-on-4, .ink-on-0 { color: #0b0b0b; }
 .tip {
   position: absolute;
   transform: translate(-50%, calc(-100% - 8px));
@@ -1581,6 +1589,14 @@ code {
 .list__icon--s3 {
   background: var(--green-soft);
   color: var(--green);
+}
+.list__icon--s5 {
+  background: #ecebfb;
+  color: #4a3aa7;
+}
+.list__icon--s0 {
+  background: var(--bg);
+  color: var(--muted);
 }
 .list__icon--s4 {
   background: var(--amber-soft);

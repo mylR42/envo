@@ -1,5 +1,9 @@
 # Journal des versions
 
+## 0.5.1 — 09/11/2026
+
+- Portefeuille de devis : une couleur par statut, jamais partagée (« Payé » avait le bleu d’« Envoyé »). Statuts rangés dans l’ordre de vie du devis (brouillon, envoyé, signé, payé, refusé), « Payé » en violet, statuts inconnus réunis en « Autres » (gris), statuts équivalents (« Accepté », « Signé ») additionnés. Ordre et couleurs validés, daltonisme compris.
+
 ## 0.5.0 — 09/11/2026
 
 Lecture d’Interfast : plus de « network error », une vraie progression, et le temps mesuré.

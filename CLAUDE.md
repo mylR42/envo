@@ -83,7 +83,11 @@ copie vit sur l'appareil (`localStorage`) : l'écran s'affiche tout de suite et
 se met à jour derrière. Changer d'URL Interfast efface la recette.
 Graphiques : `ui/Charts.tsx`, SVG maison (aucune bibliothèque, CSP `'self'`),
 palette `--series-1…4` validée par le script dataviz, couleur FIXE par statut
-(`statusSlot`), vue tableau toujours disponible (bascule `envo.vue`).
+(`lib/status.ts` : familles brouillon · envoyé · signé · payé · refusé, dans
+CET ordre, `--series-4/1/3/5/2` — ordre validé au script, daltonisme compris ;
+⚠️ une couleur n'est JAMAIS partagée : un statut inconnu va dans « Autres »
+gris, deux statuts d'une même famille sont additionnés), vue tableau toujours
+disponible (bascule `envo.vue`).
 `GET /api/interfast/status` : vrai contact à chaque appel (délai, outils) +
 activité de la semaine (`tool_log`). Les réponses SSE passent par `sse()` :
 `X-Accel-Buffering: no` et un ping toutes les 15 s (nginx coupe à 60 s de silence).

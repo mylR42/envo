@@ -113,10 +113,10 @@ const OVERVIEW: Block[][] = [
             { mois: '2026-11', en_attente: 8090, acceptes: 12400, refuses: 0 },
           ],
           pipeline: [
-            { statut: 'envoyé', nombre: 7, montant_ht: 18450 },
-            { statut: 'accepté', nombre: 12, montant_ht: 47700 },
-            { statut: 'refusé', nombre: 5, montant_ht: 8130 },
-            { statut: 'brouillon', nombre: 2, montant_ht: 3090 },
+            { statut: 'Envoyé', nombre: 19, montant_ht: 72671 },
+            { statut: 'Signé', nombre: 2, montant_ht: 23234 },
+            { statut: 'Payé', nombre: 9, montant_ht: 21357 },
+            { statut: 'Brouillon', nombre: 4, montant_ht: 19354 },
           ],
           impayes_anciennete: [
             { tranche: 'Non échues', nombre: 1, montant_ttc: 1080 },

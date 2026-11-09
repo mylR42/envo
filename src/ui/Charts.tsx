@@ -15,12 +15,13 @@
  * Une valeur inconnue (null) ne dessine rien et s'écrit « – » dans le tableau.
  */
 import { useId, useRef, useState, type ReactNode } from 'react';
+import type { Slot } from '../lib/status';
 
 export interface SeriesDef {
   key: string;
   label: string;
   /** Indice de couleur catégorielle, 1 à 4, fixe pour une même entité. */
-  slot: 1 | 2 | 3 | 4;
+  slot: Slot;
 }
 export interface Row {
   label: string;
@@ -223,7 +224,7 @@ export function BarList({ rows, valueKey, format = fullEuros, extra, caption }: 
  * Part affichée en % dans le bloc quand elle a la place ; nom, montant et part
  * dans la légende et l'info-bulle.
  */
-export function SegmentBar({ parts, caption }: { parts: { label: string; value: number; slot: 1 | 2 | 3 | 4; detail?: string }[]; caption: string }) {
+export function SegmentBar({ parts, caption }: { parts: { label: string; value: number; slot: Slot; detail?: string }[]; caption: string }) {
   const id = useId();
   const total = parts.reduce((a, p) => a + p.value, 0);
   if (!total) return <p className="muted">Rien à afficher.</p>;
