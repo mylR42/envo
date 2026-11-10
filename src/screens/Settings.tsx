@@ -6,7 +6,7 @@
  *
  * La clé Interfast ne revient jamais du serveur : seuls ses 4 derniers caractères.
  */
-import { Brain, Buildings, CheckCircle, FloppyDisk, Gear, Key, LockKey, PencilSimple, Plugs, Plus, SignOut, Trash, UserCircle, Warning } from '@phosphor-icons/react';
+import { AndroidLogo, AppleLogo, Brain, Buildings, CheckCircle, Copy, FloppyDisk, Gear, Key, LockKey, Microphone, PencilSimple, Plugs, Plus, SignOut, Trash, UserCircle, Warning } from '@phosphor-icons/react';
 import { PageHead } from '../ui/PageHead';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { api, type User } from '../lib/api';
@@ -129,6 +129,7 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
           { id: 'entreprise', label: 'Entreprise', I: Buildings },
           { id: 'interfast', label: 'Interfast', I: Plugs },
           { id: 'memoire', label: 'Mémoire', I: Brain },
+          { id: 'voix', label: 'Siri', I: Microphone },
           { id: 'securite', label: 'Sécurité', I: LockKey },
         ].map(({ id, label, I }) => (
           <a key={id} href={`#/parametres/${id}`} onClick={(e) => (e.preventDefault(), document.getElementById(`s-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }))}>
@@ -239,6 +240,8 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
       </Section>
 
       <Memory open={section === 'memoire'} />
+
+      <Voice open={section === 'voix'} />
 
       <Security mail={mail} open={section === 'securite'} />
 
@@ -380,6 +383,175 @@ function Security({ mail, open }: { mail: boolean; open: boolean }) {
         </button>
       </form>
       <p className="fine">Envo ne vous demandera jamais votre mot de passe par e-mail.</p>
+    </Section>
+  );
+}
+
+/** Copie dans le presse-papiers, avec un retour visible (« Copié »). */
+function CopyField({ label, value, secret }: { label: string; value: string; secret?: boolean }) {
+  const [done, setDone] = useState(false);
+  return (
+    <div className="copyfield">
+      <span className="copyfield__label">{label}</span>
+      <code className={secret ? 'copyfield__secret' : ''}>{value}</code>
+      <button
+        className="btn btn--small"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(value);
+            setDone(true);
+            setTimeout(() => setDone(false), 2000);
+          } catch {
+            /* presse-papiers refusé : le texte reste sélectionnable */
+          }
+        }}
+      >
+        {done ? <CheckCircle size={16} /> : <Copy size={16} />} {done ? 'Copié' : 'Copier'}
+      </button>
+    </div>
+  );
+}
+
+interface VoiceToken {
+  id: string;
+  label: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+/**
+ * Siri et assistants vocaux. Siri passe par un Raccourci iPhone qui envoie la
+ * phrase dictée à /api/voix avec une CLÉ VOCALE et lit la réponse. La clé n'est
+ * montrée qu'UNE fois (seul son SHA-256 est gardé) et se révoque ici.
+ */
+function Voice({ open }: { open: boolean }) {
+  const [tokens, setTokens] = useState<VoiceToken[] | null>(null);
+  const [fresh, setFresh] = useState<{ token: string; url: string } | null>(null);
+  const [error, setError] = useState('');
+  const [toRevoke, setToRevoke] = useState<VoiceToken | null>(null);
+  const url = `${window.location.origin}/api/voix`;
+
+  const load = () => api.get<{ tokens: VoiceToken[] }>('/api/account/voice-tokens').then((r) => setTokens(r.tokens), (e: Error) => setError(e.message));
+  useEffect(() => void load(), []);
+
+  const create = async () => {
+    setError('');
+    try {
+      const r = await api.post<{ token: string; url: string }>('/api/account/voice-tokens', { label: /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android' : 'Siri' });
+      setFresh(r);
+      void load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <Section id="voix" open={open} icon={<Microphone size={20} weight="light" />} title="Siri et assistant vocal" intro="Parlez à Envo sans ouvrir l’appli : « Dis Siri, Envo », puis dites ce que vous voulez. La conversation continue d’une fois sur l’autre ; vous la retrouvez dans AssistDevis.">
+      <h3 className="subhead">
+        <Key size={18} /> 1. Votre clé vocale
+      </h3>
+      {fresh ? (
+        <div className="voicekey">
+          <p className="alert alert--warn">
+            <Warning size={16} /> Copiez la clé maintenant : elle ne sera plus jamais affichée. Elle permet de parler à Envo en votre nom — ne la partagez pas.
+          </p>
+          <CopyField label="Adresse" value={fresh.url} />
+          <CopyField label="Authorization" value={`Bearer ${fresh.token}`} secret />
+        </div>
+      ) : (
+        <button className="btn btn--primary" onClick={create}>
+          <Plus size={18} /> Créer une clé vocale
+        </button>
+      )}
+      {error && <p className="alert alert--error">{error}</p>}
+      {tokens && tokens.length > 0 && (
+        <ul className="rex">
+          {tokens.map((t) => (
+            <li key={t.id}>
+              <span className="badge">{t.label}</span>
+              <span className="grow">
+                Créée {relDate(t.created_at)}
+                <small className="muted"> · {t.last_used_at ? `utilisée ${relDate(t.last_used_at)}` : 'jamais utilisée'}</small>
+              </span>
+              <button className="icon-btn" aria-label="Révoquer" onClick={() => setToRevoke(t)}>
+                <Trash size={18} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h3 className="subhead">
+        <AppleLogo size={18} /> 2. Sur iPhone : le Raccourci « Envo »
+      </h3>
+      <ol className="howto">
+        <li>
+          Ouvrez l’app <strong>Raccourcis</strong>, touchez <strong>+</strong>, et nommez le raccourci <strong>Envo</strong> : c’est ce que vous direz à Siri.
+        </li>
+        <li>
+          Ajoutez l’action <strong>Dicter le texte</strong> (langue : Français).
+        </li>
+        <li>
+          Ajoutez <strong>Obtenir le contenu de l’URL</strong> : collez l’adresse <code>{url}</code>, touchez <strong>Afficher plus</strong>, puis
+          <ul>
+            <li>
+              Méthode : <strong>POST</strong> ;
+            </li>
+            <li>
+              En-têtes : ajoutez <strong>Authorization</strong> et collez la valeur copiée ci-dessus (elle commence par <code>Bearer</code>) ;
+            </li>
+            <li>
+              Corps de la requête : <strong>JSON</strong>, un champ texte nommé <code>texte</code> dont la valeur est <strong>Texte dicté</strong>.
+            </li>
+          </ul>
+        </li>
+        <li>
+          Ajoutez <strong>Obtenir la valeur du dictionnaire</strong> pour la clé <code>reponse</code>.
+        </li>
+        <li>
+          Ajoutez <strong>Énoncer le texte</strong> avec cette valeur.
+        </li>
+        <li>
+          Dites <strong>« Dis Siri, Envo »</strong>, puis par exemple : « Fais-moi le point sur mes devis » ou « Devis pour remplacer un chauffe-eau chez M. Martin ».
+        </li>
+      </ol>
+      <p className="fine">
+        Pour enchaîner sans redire « Dis Siri » : placez les actions dans <strong>Répéter</strong> (5 fois) et ajoutez <strong>Si</strong> la valeur <code>attente</code> du dictionnaire est fausse, alors <strong>Arrêter ce raccourci</strong>. Pour valider une création dans Interfast, il faut dire « je valide » : un simple « oui » ne suffit pas. « Nouvelle conversation » repart de zéro.
+      </p>
+
+      <h3 className="subhead">
+        <AndroidLogo size={18} /> 3. Sur Android
+      </h3>
+      <ol className="howto">
+        <li>
+          Dans Chrome, ouvrez Envo, puis le menu (les trois points) et <strong>Installer l’appli</strong>.
+        </li>
+        <li>
+          Dites <strong>« Ok Google, ouvre Envo »</strong>. Pour arriver directement en conversation à la voix, appuyez longuement sur l’icône d’Envo, puis sur <strong>Parler à Envo</strong> (glissez-le sur l’écran d’accueil pour l’avoir sous la main).
+        </li>
+        <li>
+          Pour un vrai mains-libres comme Siri, l’app <strong>HTTP Shortcuts</strong> fait la même chose que le Raccourci iPhone : requête POST vers l’adresse ci-dessus, même en-tête, même corps, puis lecture de <code>reponse</code>.
+        </li>
+      </ol>
+
+      {toRevoke && (
+        <Popin
+          tone="danger"
+          icon={<Trash size={22} />}
+          title="Révoquer cette clé vocale ?"
+          confirmLabel="Révoquer"
+          cancelLabel="Garder"
+          onCancel={() => setToRevoke(null)}
+          onConfirm={async () => {
+            await api.del(`/api/account/voice-tokens/${toRevoke.id}`).catch((e: Error) => setError(e.message));
+            setToRevoke(null);
+            setFresh(null);
+            void load();
+          }}
+        >
+          <p>Le Raccourci qui l’utilise (« {toRevoke.label} ») ne pourra plus parler à Envo. Vous pourrez créer une nouvelle clé.</p>
+        </Popin>
+      )}
     </Section>
   );
 }

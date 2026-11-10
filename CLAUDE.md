@@ -112,6 +112,21 @@ Chaque réponse a son bouton « Écouter ». ⚠️ La lecture passe par `chunks
 énoncé long au bout de ~15 s. `speak()` est annulable (`stopSpeaking`, compteur
 de séance) et `speakable()` dit « euros hors taxes », « pour cent ».
 
+## Siri et assistants vocaux (`/api/voix`)
+
+« Dis Siri, Envo » = un Raccourci iPhone (pas-à-pas dans Paramètres → Siri) :
+Dicter le texte → POST `/api/voix` (`Authorization: Bearer envo_…`, `{texte}`)
+→ lire `reponse`. Clé vocale propre (`voice_tokens`, SHA-256, révocable),
+JAMAIS le cookie : la route est exemptée du contrôle d'origine et ne lit que la
+clé. Séance `kind = 'voix'` reprise si < 30 min ; la phrase répond à ce qui est
+en attente (`matchOption`, `voiceDecision` — ⚠️ « je valide » seulement, comme
+à l'écran). `executeTurn()` est le MÊME tour que l'appli. `voiceReply()` fait le
+texte à dire (`speakable`, partagé par `src/lib/speech-text.ts`, ≤ 1 500
+caractères, `attente` quand une réponse est attendue). ⚠️ La réponse envoie un
+espace toutes les 15 s avant le JSON : nginx coupe à 60 s de silence.
+Android : PWA + raccourci d'icône « Parler à Envo » (`#/devis/voix`, manifest
+`shortcuts`), séance en mains libres.
+
 ## En-tête
 
 ⚠️ **Un en-tête sur CHAQUE écran** (demande du 09/11/2026) : `.apphead` dans

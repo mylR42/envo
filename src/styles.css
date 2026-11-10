@@ -2113,6 +2113,57 @@ code {
   border-top: 1px solid var(--line);
 }
 
+.subhead {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.98rem;
+  font-weight: 800;
+  margin: 1.1rem 0 0.5rem;
+}
+.howto {
+  margin: 0;
+  padding-left: 1.3rem;
+  display: grid;
+  gap: 0.45rem;
+  font-size: 0.93rem;
+}
+.howto ul {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+}
+.howto code,
+.fine code {
+  overflow-wrap: anywhere;
+}
+.voicekey {
+  display: grid;
+  gap: 0.5rem;
+}
+.copyfield {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 0.5rem 0.6rem;
+}
+.copyfield__label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+.copyfield code {
+  background: none;
+  padding: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+}
+.copyfield__secret {
+  font-weight: 700;
+}
+
 /* ---------- Popin ---------- */
 .popin {
   position: fixed;

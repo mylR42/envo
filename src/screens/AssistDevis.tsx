@@ -96,11 +96,12 @@ function SessionList({ assistant, start, onStarted }: { assistant: boolean; star
     }
   };
 
+  // Aussi quand une demande arrive alors que la liste est déjà affichée (« Parler à Envo » depuis l'icône).
   useEffect(() => {
     if (start && assistant) void create();
     else api.get<{ conversations: ConvSummary[] }>('/api/conversations').then((r) => setList(r.conversations), (e: Error) => setError(e.message));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- une fois à l'ouverture
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- à l'ouverture et à chaque demande de séance
+  }, [start]);
 
   const remove = async () => {
     if (!toDelete) return;
@@ -205,6 +206,8 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
           else if (start.voice) {
             setHandsFree(true);
             setSpeakOn(true);
+            // Android le permet sans appui ; sur iPhone il faudra toucher le micro (le gros bouton est là).
+            setTimeout(() => startListening(), 300);
           }
         }
       },

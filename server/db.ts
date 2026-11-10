@@ -160,6 +160,16 @@ export const SCHEMA = [
   `ALTER TABLE settings ADD COLUMN IF NOT EXISTS overview_recipe jsonb`,
   // Durée de la dernière lecture (total, Interfast, calcul) : estimation de la barre de progression et diagnostic de lenteur.
   `ALTER TABLE settings ADD COLUMN IF NOT EXISTS overview_stats jsonb`,
+  // Clés vocales (10/11/2026) : Siri (Raccourci iPhone) parle à Envo sans cookie. Seul le SHA-256 est gardé, révocable.
+  `CREATE TABLE IF NOT EXISTS voice_tokens (
+     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     token_hash text NOT NULL UNIQUE,
+     label text NOT NULL DEFAULT '',
+     created_at timestamptz NOT NULL DEFAULT now(),
+     last_used_at timestamptz
+   )`,
+  `CREATE INDEX IF NOT EXISTS voice_tokens_user ON voice_tokens(user_id)`,
 ];
 
 export async function applySchema(db: Db): Promise<void> {

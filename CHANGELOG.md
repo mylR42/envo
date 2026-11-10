@@ -1,5 +1,12 @@
 # Journal des versions
 
+## 0.6.0 — 10/11/2026
+
+Parler à Envo par Siri, et en mains libres sur Android.
+- « Dis Siri, Envo » : un Raccourci iPhone dicte la phrase, l’envoie à Envo (`/api/voix`) et lit la réponse. Paramètres → Siri : clé vocale personnelle (montrée une fois, révocable) et pas-à-pas du Raccourci.
+- La conversation continue d’un appel à l’autre (30 min), se retrouve dans AssistDevis ; « nouvelle conversation » repart de zéro. Les questions à choix se répondent à la voix ; une création dans Interfast exige « je valide » (un « oui » ne suffit pas).
+- Android : « Ok Google, ouvre Envo », et le raccourci de l’icône « Parler à Envo » ouvre une séance à la voix, mains libres.
+
 ## 0.5.2 — 09/11/2026
 
 - Signature : « Votre assistant personnel » remplace « L’assistante de l’artisan » (écran d’entrée, barre latérale, titre de la page, raccourci d’écran d’accueil, e-mails).

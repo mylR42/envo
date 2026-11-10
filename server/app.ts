@@ -16,7 +16,7 @@
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import { streamSSE } from 'hono/streaming';
+import { stream as honoStream, streamSSE } from 'hono/streaming';
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { Config } from './config';
 import type { Db } from './db';
@@ -27,7 +27,9 @@ import { isWriteTool, McpError, type McpClient, type McpTool } from './mcp';
 import { DUMMY_HASH, PASSWORD_MIN, deviceLabel, hashPassword, isEmail, isUuid, newOtp, newToken, normalizeEmail, sha256, verifyPassword } from './security';
 import { runTurn, type ActionState, type Answer, type Llm, type Pending } from './agent';
 import { SYSTEM_PROMPT, sessionContext, type ArtisanSettings, type PastSession, type RexItem } from './prompt';
-import { toView } from './view';
+import { toView, type ViewItem } from './view';
+import { matchOption, speakable, voiceDecision } from '../src/lib/speech-text';
+import { toolLabel } from '../src/lib/format';
 import { collectOverview, OVERVIEW_TTL_MS, type Overview, type RecipeCall } from './overview';
 
 export interface Deps {
@@ -174,6 +176,8 @@ export function createApp(deps: Deps) {
   app.use('/api/*', async (c, next) => {
     const m = c.req.method;
     if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return next();
+    // Siri (Raccourci) n'a ni cookie ni origine : la route vocale s'authentifie par sa clé, jamais par la session.
+    if (c.req.path === '/api/voix') return next();
     const o = c.req.header('origin');
     const site = c.req.header('sec-fetch-site');
     if (o ? o !== origin : site !== 'same-origin') return c.json({ error: 'origine refusée' }, 403);
@@ -580,6 +584,20 @@ export function createApp(deps: Deps) {
     };
   }
 
+  /** Nouvelle séance : son contexte (réglages, REX, dernières séances) est FIGÉ ici. */
+  async function createConversation(u: User, kind: 'devis' | 'voix'): Promise<string> {
+    const s = await loadSettings(u.id);
+    const rex = await db.query<RexItem>(
+      `(SELECT kind, content, created_at FROM rex WHERE user_id = $1 AND kind <> 'avis' ORDER BY uses DESC, created_at DESC LIMIT ${REX_IN_CONTEXT})
+       UNION ALL (SELECT kind, content, created_at FROM rex WHERE user_id = $1 AND kind = 'avis' ORDER BY created_at DESC LIMIT 8)`,
+      [u.id],
+    );
+    const past = await db.query<PastSession>(`SELECT title, status, outcome, feedback, rating FROM conversations WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 10`, [u.id]);
+    const context = sessionContext({ name: u.name, now: now(), settings: s, rex, past });
+    const r = (await db.query<{ id: string }>('INSERT INTO conversations (user_id, kind, context) VALUES ($1, $2, $3) RETURNING id', [u.id, kind, context]))[0]!;
+    return r.id;
+  }
+
   app.get('/api/conversations', async (c) => {
     const u = c.get('user');
     if (!u) return unauthorized(c);
@@ -594,16 +612,8 @@ export function createApp(deps: Deps) {
     const u = c.get('user');
     if (!u) return unauthorized(c);
     if (overRate(`conv:${u.id}`, 60, 3600_000)) return c.json({ error: 'trop de séances ouvertes, patientez' }, 429);
-    const s = await loadSettings(u.id);
-    const rex = await db.query<RexItem>(
-      `(SELECT kind, content, created_at FROM rex WHERE user_id = $1 AND kind <> 'avis' ORDER BY uses DESC, created_at DESC LIMIT ${REX_IN_CONTEXT})
-       UNION ALL (SELECT kind, content, created_at FROM rex WHERE user_id = $1 AND kind = 'avis' ORDER BY created_at DESC LIMIT 8)`,
-      [u.id],
-    );
-    const past = await db.query<PastSession>(`SELECT title, status, outcome, feedback, rating FROM conversations WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 10`, [u.id]);
-    const context = sessionContext({ name: u.name, now: now(), settings: s, rex, past });
-    const r = (await db.query<{ id: string }>('INSERT INTO conversations (user_id, kind, context) VALUES ($1, $2, $3) RETURNING id', [u.id, 'devis', context]))[0]!;
-    return c.json({ id: r.id });
+    const id = await createConversation(u, 'devis');
+    return c.json({ id });
   });
 
   app.get('/api/conversations/:id', async (c) => {
@@ -643,6 +653,75 @@ export function createApp(deps: Deps) {
     return c.json({ ok: true });
   });
 
+  /**
+   * Un tour de l'assistante, partagé par l'appli (réponse en flux) et par Siri
+   * (/api/voix) : mêmes outils, même validation des écritures, même historique.
+   */
+  async function executeTurn(u: User, conv: ConvRow, text: string, answers: Answer[], onStatus: (t: string) => void, opts: { effort?: 'low' | 'medium' | 'high' } = {}) {
+    const anthropic = cfg.anthropic;
+    if (!llm || !anthropic) throw new Error('assistante non configurée');
+    const s = await loadSettings(u.id);
+    const mcp = mcpFor(s);
+    let mcpTools: McpTool[] = [];
+    let mcpNote = '';
+    try {
+      mcpTools = await toolsFor(u.id, s, mcp);
+    } catch (e) {
+      mcpNote = e instanceof McpError ? e.message : 'Interfast injoignable';
+    }
+    const hist = await history(conv.id);
+    const res = await runTurn(
+      {
+        llm,
+        model: anthropic.model,
+        effort: opts.effort ?? anthropic.effort,
+        mcp,
+        mcpTools,
+        systemPrompt: SYSTEM_PROMPT,
+        context: conv.context + (mcp ? '' : '\n\n# Interfast\nNON CONNECTÉ : l’artisan doit renseigner l’URL du serveur MCP dans Paramètres. Tu peux préparer un brouillon, pas le créer.'),
+        history: hist,
+        pending: conv.pending,
+        onStatus,
+        remember: async (kind, content, tags) => {
+          await db.query('INSERT INTO rex (user_id, kind, content, tags, source_conversation) VALUES ($1, $2, $3, $4, $5)', [u.id, REX_KINDS.includes(kind as never) ? kind : 'decision', content, tags, conv.id]);
+        },
+        searchRex: async (q) => {
+          const words = q.toLowerCase().split(/[^a-z0-9à-ÿ]+/i).filter((w) => w.length >= 3).slice(0, 6);
+          if (!words.length) return [];
+          const like = words.map((_, i) => `(lower(content) LIKE $${i + 2} OR lower(tags) LIKE $${i + 2})`).join(' OR ');
+          const rows = await db.query<{ id: string; kind: string; content: string; created_at: Date }>(`SELECT id, kind, content, created_at FROM rex WHERE user_id = $1 AND (${like}) ORDER BY created_at DESC LIMIT 15`, [
+            u.id,
+            ...words.map((w) => `%${w.replace(/[%_\\]/g, '')}%`),
+          ]);
+          if (rows.length) await db.query('UPDATE rex SET uses = uses + 1, last_used_at = $2 WHERE id = ANY($1::uuid[])', [rows.map((r) => r.id), now()]);
+          return rows;
+        },
+        logTool: async (tool, ok, ms) => {
+          await db.query('INSERT INTO tool_log (user_id, conversation_id, tool, ok, ms) VALUES ($1, $2, $3, $4, $5)', [u.id, conv.id, tool, ok, ms]);
+        },
+        recordAction: async (a) => {
+          await db.query(
+            `INSERT INTO actions (tool_use_id, conversation_id, user_id, tool, input, state, result) VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7)
+             ON CONFLICT (tool_use_id) DO UPDATE SET state = $6, result = $7, decided_at = $8 WHERE actions.user_id = $3`,
+            [a.toolUseId, conv.id, u.id, a.tool, JSON.stringify(a.input), a.state, a.result ?? '', now()],
+          );
+        },
+      },
+      { text, answers },
+    );
+    for (const m of res.appended) await db.query('INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3::text::jsonb)', [conv.id, m.role, JSON.stringify(m.content)]);
+    const title = conv.title || text.slice(0, 70);
+    await db.query(
+      `UPDATE conversations SET pending = $3::text::jsonb, title = $4, updated_at = $5,
+         status = CASE WHEN $6::text <> '' THEN 'devis_cree' WHEN status = 'termine' THEN 'en_cours' ELSE status END,
+         outcome = CASE WHEN $6::text <> '' THEN $6::text ELSE outcome END
+       WHERE id = $1 AND user_id = $2`,
+      [conv.id, u.id, res.pending ? JSON.stringify(res.pending) : null, title, now(), res.created ?? ''],
+    );
+    const fresh = (await ownConv(u.id, conv.id))!;
+    return { ...(await convView(fresh)), stop: res.stop, mcpNote };
+  }
+
   app.post('/api/conversations/:id/turn', async (c) => {
     const u = c.get('user');
     if (!u) return unauthorized(c);
@@ -662,75 +741,11 @@ export function createApp(deps: Deps) {
     if (busy.has(conv.id)) return c.json({ error: 'l’assistante répond déjà dans cette séance' }, 409);
     busy.add(conv.id);
 
-    const anthropic = cfg.anthropic;
-    const work = async (onStatus: (t: string) => void) => {
-      const s = await loadSettings(u.id);
-      const mcp = mcpFor(s);
-      let mcpTools: McpTool[] = [];
-      let mcpNote = '';
-      try {
-        mcpTools = await toolsFor(u.id, s, mcp);
-      } catch (e) {
-        mcpNote = e instanceof McpError ? e.message : 'Interfast injoignable';
-      }
-      const hist = await history(conv.id);
-      const res = await runTurn(
-        {
-          llm,
-          model: anthropic.model,
-          effort: anthropic.effort,
-          mcp,
-          mcpTools,
-          systemPrompt: SYSTEM_PROMPT,
-          context: conv.context + (mcp ? '' : '\n\n# Interfast\nNON CONNECTÉ : l’artisan doit renseigner l’URL du serveur MCP dans Paramètres. Tu peux préparer un brouillon, pas le créer.'),
-          history: hist,
-          pending: conv.pending,
-          onStatus,
-          remember: async (kind, content, tags) => {
-            await db.query('INSERT INTO rex (user_id, kind, content, tags, source_conversation) VALUES ($1, $2, $3, $4, $5)', [u.id, REX_KINDS.includes(kind as never) ? kind : 'decision', content, tags, conv.id]);
-          },
-          searchRex: async (q) => {
-            const words = q.toLowerCase().split(/[^a-z0-9à-ÿ]+/i).filter((w) => w.length >= 3).slice(0, 6);
-            if (!words.length) return [];
-            const like = words.map((_, i) => `(lower(content) LIKE $${i + 2} OR lower(tags) LIKE $${i + 2})`).join(' OR ');
-            const rows = await db.query<{ id: string; kind: string; content: string; created_at: Date }>(`SELECT id, kind, content, created_at FROM rex WHERE user_id = $1 AND (${like}) ORDER BY created_at DESC LIMIT 15`, [
-              u.id,
-              ...words.map((w) => `%${w.replace(/[%_\\]/g, '')}%`),
-            ]);
-            if (rows.length) await db.query('UPDATE rex SET uses = uses + 1, last_used_at = $2 WHERE id = ANY($1::uuid[])', [rows.map((r) => r.id), now()]);
-            return rows;
-          },
-          logTool: async (tool, ok, ms) => {
-            await db.query('INSERT INTO tool_log (user_id, conversation_id, tool, ok, ms) VALUES ($1, $2, $3, $4, $5)', [u.id, conv.id, tool, ok, ms]);
-          },
-          recordAction: async (a) => {
-            await db.query(
-              `INSERT INTO actions (tool_use_id, conversation_id, user_id, tool, input, state, result) VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7)
-               ON CONFLICT (tool_use_id) DO UPDATE SET state = $6, result = $7, decided_at = $8 WHERE actions.user_id = $3`,
-              [a.toolUseId, conv.id, u.id, a.tool, JSON.stringify(a.input), a.state, a.result ?? '', now()],
-            );
-          },
-        },
-        { text, answers },
-      );
-      for (const m of res.appended) await db.query('INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3::text::jsonb)', [conv.id, m.role, JSON.stringify(m.content)]);
-      const title = conv.title || text.slice(0, 70);
-      await db.query(
-        `UPDATE conversations SET pending = $3::text::jsonb, title = $4, updated_at = $5,
-           status = CASE WHEN $6::text <> '' THEN 'devis_cree' WHEN status = 'termine' THEN 'en_cours' ELSE status END,
-           outcome = CASE WHEN $6::text <> '' THEN $6::text ELSE outcome END
-         WHERE id = $1 AND user_id = $2`,
-        [conv.id, u.id, res.pending ? JSON.stringify(res.pending) : null, title, now(), res.created ?? ''],
-      );
-      const fresh = (await ownConv(u.id, conv.id))!;
-      return { ...(await convView(fresh)), stop: res.stop, mcpNote };
-    };
-
     // Réponse en flux (SSE) : l'écran voit ce que fait l'assistante pendant qu'elle travaille,
     // et une connexion qui tombe n'interrompt pas le tour — il est enregistré quand même.
     return sse(c, async (stream) => {
       try {
-        const out = await work((t) => void stream.writeSSE({ event: 'status', data: t }).catch(() => {}));
+        const out = await executeTurn(u, conv, text, answers, (t) => void stream.writeSSE({ event: 'status', data: t }).catch(() => {}));
         await stream.writeSSE({ event: 'done', data: JSON.stringify(out) }).catch(() => {});
       } catch (e) {
         console.error('tour de l’assistante :', e);
@@ -739,6 +754,141 @@ export function createApp(deps: Deps) {
         busy.delete(conv.id);
       }
     });
+  });
+
+  /* ---------- Voix : Siri (Raccourci iPhone) et assistants vocaux ---------- */
+  /*
+   * « Dis Siri, Envo » : un Raccourci dicte la phrase, l'envoie ici avec une CLÉ
+   * VOCALE personnelle, lit la réponse à voix haute. Pas de cookie : la clé fait
+   * foi (seul son SHA-256 est en base, révocable dans Paramètres).
+   *
+   * - La conversation continue d'un appel à l'autre (séance « voix » de moins de
+   *   30 min), sauf « nouvelle conversation ».
+   * - ⚠️ Écritures dans Interfast : la même règle qu'à l'écran — rien ne part
+   *   sans une formule EXPLICITE (« je valide »), un « oui » seul ne valide pas.
+   * - La réponse est un texte À DIRE (speakable), court, + `attente` quand
+   *   l'assistante attend une réponse (le Raccourci peut alors réécouter).
+   */
+  const VOICE_IDLE_MS = 30 * 60_000;
+  const VOICE_MAX_CHARS = 1500;
+
+  /** Ce que Siri doit dire après un tour : réponses, question ouverte, validation demandée. PUR. */
+  const voiceReply = (items: ViewItem[], from: number): { text: string; waiting: boolean } => {
+    const parts: string[] = [];
+    let waiting = false;
+    for (const it of items.slice(from)) {
+      if (it.type === 'assistant') parts.push(it.text);
+      else if (it.type === 'draft') {
+        const ht = it.lignes.reduce((a, l) => a + Number(l.quantite) * Number(l.prix_unitaire_ht), 0);
+        if (Number.isFinite(ht)) parts.push(`Brouillon prêt : ${it.titre}, ${Math.round(ht).toLocaleString('fr-FR')} € HT.`);
+      } else if (it.type === 'choice' && it.open) {
+        waiting = true;
+        parts.push(`${it.question} ${it.options.length ? `Vous pouvez répondre : ${it.options.slice(0, -1).join(', ')}${it.options.length > 1 ? ' ou ' : ''}${it.options.at(-1)}.` : ''}`);
+      } else if (it.type === 'confirm' && it.state === 'attente') {
+        waiting = true;
+        parts.push(`Je dois « ${toolLabel(it.tool)} » dans Interfast. Pour confirmer, dites : je valide. Sinon, dites : non.`);
+      }
+    }
+    let text = speakable(parts.join('\n')).replace(/\n+/g, ' ').trim();
+    if (text.length > VOICE_MAX_CHARS) text = `${text.slice(0, VOICE_MAX_CHARS).replace(/\s+\S*$/, '')}… La suite est dans l’appli Envo.`;
+    return { text: text || 'C’est noté.', waiting };
+  };
+
+  app.post('/api/voix', async (c) => {
+    const auth = c.req.header('authorization') ?? '';
+    const b = await readJson<{ texte: string; text: string; cle: string; nouvelle: boolean }>(c);
+    const token = (/^Bearer\s+(.+)$/i.exec(auth)?.[1] ?? String(b.cle ?? '')).trim();
+    if (overRate(`voix-ip:${clientIp(c)}`, 120, 3600_000)) return c.json({ reponse: 'Trop de demandes, réessayez plus tard.', erreur: 'debit' }, 429);
+    const row = token.length >= 20 ? (await db.query<{ id: string; user_id: string }>('SELECT id, user_id FROM voice_tokens WHERE token_hash = $1', [sha256(token)]))[0] : undefined;
+    if (!row) return c.json({ reponse: 'Clé vocale inconnue. Créez-en une dans Envo, Paramètres, Siri.', erreur: 'cle' }, 401);
+    const u = (await db.query<User>('SELECT id, email, name FROM users WHERE id = $1', [row.user_id]))[0];
+    if (!u) return c.json({ reponse: 'Compte introuvable.', erreur: 'cle' }, 401);
+    await db.query('UPDATE voice_tokens SET last_used_at = $2 WHERE id = $1', [row.id, now()]);
+    if (!llm || !cfg.anthropic) return c.json({ reponse: 'L’assistante n’est pas activée sur le serveur.', erreur: 'assistante' }, 503);
+    if (overRate(`turn:${u.id}`, 120, 3600_000)) return c.json({ reponse: 'Trop de messages en une heure. Patientez un peu.', erreur: 'debit' }, 429);
+
+    const said = str(b.texte ?? b.text, 4000);
+    if (!said) return c.json({ reponse: 'Je n’ai rien entendu. Redites-moi.', attente: true }, 400);
+    const fresh = b.nouvelle === true || /^(nouvelle (conversation|séance|seance)|recommence|on recommence)\b/i.test(said);
+    let conv = fresh
+      ? null
+      : ((await db.query<ConvRow>(`SELECT * FROM conversations WHERE user_id = $1 AND kind = 'voix' AND status <> 'termine' AND updated_at > $2 ORDER BY updated_at DESC LIMIT 1`, [u.id, new Date(now().getTime() - VOICE_IDLE_MS)]))[0] ?? null);
+    if (fresh && /^(nouvelle (conversation|séance|seance)|recommence|on recommence)\W*$/i.test(said)) {
+      await createConversation(u, 'voix');
+      return c.json({ reponse: 'D’accord, on repart de zéro. Je vous écoute.', attente: true });
+    }
+    conv ??= await ownConv(u.id, await createConversation(u, 'voix'));
+    if (!conv) return c.json({ reponse: 'Impossible d’ouvrir une séance.', erreur: 'interne' }, 500);
+    if (busy.has(conv.id)) return c.json({ reponse: 'Je réponds déjà à votre demande précédente. Un instant.', attente: true }, 409);
+
+    // La phrase dite répond à ce qui est en attente : validation (formule explicite seulement) ou question à choix.
+    const answers: Answer[] = [];
+    let text = said;
+    for (const w of conv.pending?.waiting ?? []) {
+      if (w.kind === 'confirm') {
+        const d = voiceDecision(said);
+        if (d) {
+          answers.push({ toolUseId: w.toolUseId, approved: d === 'valider' });
+          text = '';
+        }
+      } else {
+        answers.push({ toolUseId: w.toolUseId, choice: matchOption(said, w.options) ?? said });
+        text = '';
+      }
+    }
+    const before = toView(await history(conv.id), conv.pending, await actionStates(conv.id)).length;
+    busy.add(conv.id);
+    const cv = conv;
+    /*
+     * ⚠️ Un tour peut dépasser la minute, et nginx coupe une réponse muette au
+     * bout de 60 s : on envoie un espace toutes les 15 s AVANT le JSON (un JSON
+     * peut commencer par des espaces), puis la réponse. Statut 200 dans tous les
+     * cas : l'erreur éventuelle est dite dans `reponse`.
+     */
+    c.header('Content-Type', 'application/json; charset=utf-8');
+    c.header('X-Accel-Buffering', 'no');
+    c.header('Cache-Control', 'no-store');
+    return honoStream(c, async (st) => {
+      const ping = setInterval(() => void st.write(' ').catch(() => {}), 15_000);
+      let body: Record<string, unknown>;
+      try {
+        const out = await executeTurn(u, cv, text, answers, () => {}, { effort: 'low' });
+        const r = voiceReply(out.items as ViewItem[], before);
+        body = { reponse: r.text, attente: r.waiting, conversation: cv.id, lien: `${origin}/#/devis/${cv.id}` };
+      } catch (e) {
+        console.error('voix :', (e as Error).message);
+        body = { reponse: 'Je n’ai pas pu répondre. Réessayez dans un instant.', erreur: 'interne', attente: false };
+      } finally {
+        clearInterval(ping);
+        busy.delete(cv.id);
+      }
+      await st.write(JSON.stringify(body)).catch(() => {});
+    });
+  });
+
+  /* Clés vocales : création (montrée UNE fois), liste, révocation. */
+  app.get('/api/account/voice-tokens', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    return c.json({ tokens: await db.query('SELECT id, label, created_at, last_used_at FROM voice_tokens WHERE user_id = $1 ORDER BY created_at DESC', [u.id]) });
+  });
+  app.post('/api/account/voice-tokens', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const n = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM voice_tokens WHERE user_id = $1', [u.id]))[0]!.n;
+    if (n >= 10) return c.json({ error: 'dix clés au plus : révoquez-en une' }, 400);
+    const label = str((await readJson<{ label: string }>(c)).label, 60) || 'Siri';
+    const token = `envo_${newToken()}`;
+    const r = (await db.query<{ id: string }>('INSERT INTO voice_tokens (user_id, token_hash, label) VALUES ($1, $2, $3) RETURNING id', [u.id, sha256(token), label]))[0]!;
+    return c.json({ id: r.id, token, url: `${origin}/api/voix` });
+  });
+  app.delete('/api/account/voice-tokens/:id', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const id = c.req.param('id');
+    if (!isUuid(id)) return c.json({ error: 'introuvable' }, 404);
+    await db.query('DELETE FROM voice_tokens WHERE id = $1 AND user_id = $2', [id, u.id]);
+    return c.json({ ok: true });
   });
 
   /* ---------- Interfast : état de la connexion et tableau de bord ---------- */
