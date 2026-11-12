@@ -127,6 +127,19 @@ espace toutes les 15 s avant le JSON : nginx coupe à 60 s de silence.
 Android : PWA + raccourci d'icône « Parler à Envo » (`#/devis/voix`, manifest
 `shortcuts`), séance en mains libres.
 
+## Hors ligne (`public/sw.js`, `src/lib/offline.ts`)
+
+Service worker (production, https) : l'APPLI copiée à l'installation (page,
+`/assets/` hachés, polices citées par les CSS), page en réseau d'abord ; les
+LECTURES de l'API d'une liste blanche (`READS`) en réseau d'abord, la dernière
+réponse gardée et servie hors ligne avec `x-envo-offline` = date de la copie.
+⚠️ JAMAIS une écriture en différé : hors ligne, envoi, choix, validation,
+nouveau devis et actualisation sont inactifs (`useOffline()`), et le bandeau dit
+de quand datent les données. ⚠️ Copies effacées à la déconnexion et au
+changement de compte (`clearOfflineData`, `rememberAccount`). Une nouvelle route
+de lecture à garder hors ligne s'ajoute à `READS` ; changer `sw.js` = monter
+`VERSION`. Le tableau de bord ouvre d'avance les 6 dernières séances.
+
 ## En-tête
 
 ⚠️ **Un en-tête sur CHAQUE écran** (demande du 09/11/2026) : `.apphead` dans

@@ -1,4 +1,5 @@
 /** Appels à l'API d'Envo (même origine, cookie de session HttpOnly). */
+import { noteResponse } from './offline';
 
 export interface User {
   id: string;
@@ -25,8 +26,10 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError('Pas de connexion au serveur. Vérifiez le réseau.', 0);
+    noteResponse('echec');
+    throw new ApiError(method === 'GET' ? 'Pas de connexion au serveur. Vérifiez le réseau.' : 'Hors connexion : rien n’a été envoyé. Réessayez quand le réseau sera revenu.', 0);
   }
+  noteResponse({ offlineCopy: res.headers.get('x-envo-offline') });
   const json = (await res.json().catch(() => ({}))) as T & { error?: string };
   if (!res.ok) throw new ApiError(json.error ?? `Erreur ${res.status}`, res.status);
   return json;
@@ -42,14 +45,8 @@ export const api = {
 
 /* ---------- Types partagés avec le serveur (server/view.ts) ---------- */
 
-export interface DraftLine {
-  designation: string;
-  quantite: number;
-  unite?: string;
-  prix_unitaire_ht: number;
-  tva?: number;
-  origine?: string;
-}
+import type { DraftLine } from './format';
+export type { DraftLine };
 
 export type ViewItem =
   | { type: 'user'; text: string }
@@ -94,7 +91,8 @@ export async function streamPost<T>(path: string, body: unknown, onStatus: (s: s
       body: JSON.stringify(body),
     });
   } catch {
-    throw new ApiError('Pas de connexion au serveur.', 0);
+    noteResponse('echec');
+    throw new ApiError('Hors connexion : votre message n’est pas parti. Réessayez quand le réseau sera revenu.', 0);
   }
   if (!res.ok || !res.body) {
     const j = (await res.json().catch(() => ({}))) as { error?: string };

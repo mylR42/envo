@@ -47,6 +47,7 @@ import { euros, fieldLabel, relDate, STATUS_LABEL, toolLabel, totals } from '../
 import { canListen, canSpeak, listen, matchOption, speak, stopSpeaking, voiceDecision, type Listening } from '../lib/voice';
 import { Markdown } from '../ui/Markdown';
 import { PageHead } from '../ui/PageHead';
+import { useOffline } from '../lib/offline';
 import { Popin } from '../ui/Popin';
 
 const store = {
@@ -79,6 +80,7 @@ function SessionList({ assistant, start, onStarted }: { assistant: boolean; star
   const [busy, setBusy] = useState(false);
   const [toDelete, setToDelete] = useState<ConvSummary | null>(null);
   const creating = useRef(false);
+  const net = useOffline();
 
   const create = async () => {
     if (creating.current) return;
@@ -116,7 +118,7 @@ function SessionList({ assistant, start, onStarted }: { assistant: boolean; star
         icon={ChatCircleDots}
         title="AssistDevis"
         actions={
-          <button className="btn btn--primary" onClick={create} disabled={busy || !assistant}>
+          <button className="btn btn--primary" onClick={create} disabled={busy || !assistant || !net.online}>
             <Plus size={18} /> Nouvelle séance
           </button>
         }
@@ -187,6 +189,9 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
   const [speakOn, setSpeakOn] = useState(() => store.get('envo.voix') === '1');
   /** Index (dans view.items) du message en cours de lecture, pour son bouton « Arrêter ». */
   const [speaking, setSpeaking] = useState<number | null>(null);
+  const net = useOffline();
+  /** Hors ligne : la séance se relit, rien ne part (pas d'envoi différé à l'insu de l'artisan). */
+  const canSend = assistant && net.online;
   const [handsFree, setHandsFree] = useState(false);
   const [closing, setClosing] = useState(false);
   const rec = useRef<Listening | null>(null);
@@ -428,8 +433,9 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
           </div>
         )}
 
+        {/* Hors ligne : boutons de choix et de validation inactifs (rien ne part sans réseau). */}
         {view.items.map((it, i) => (
-          <Item key={i} item={it} busy={busy} onAnswer={(a) => send({ answers: [a] })} speaking={speaking === i} onListen={canSpeak() ? () => listenTo(i) : undefined} />
+          <Item key={i} item={it} busy={busy || !canSend} onAnswer={(a) => send({ answers: [a] })} speaking={speaking === i} onListen={canSpeak() ? () => listenTo(i) : undefined} />
         ))}
 
         {(busy || interim) && (
@@ -455,7 +461,7 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
 
       <form className="composer" onSubmit={submit}>
         {canListen() && (
-          <button type="button" className={`mic${listening ? ' is-listening' : ''}`} onClick={toggleMic} disabled={busy || !assistant} aria-label={listening ? 'Arrêter l’écoute' : 'Parler'}>
+          <button type="button" className={`mic${listening ? ' is-listening' : ''}`} onClick={toggleMic} disabled={busy || !canSend} aria-label={listening ? 'Arrêter l’écoute' : 'Parler'}>
             {listening ? <MicrophoneSlash size={24} /> : <Microphone size={24} />}
           </button>
         )}
@@ -469,11 +475,11 @@ function Conversation({ id, assistant, start, onStarted }: { id: string; assista
             }
           }}
           rows={1}
-          placeholder={openChoice ? 'Ou répondez autre chose…' : openConfirm ? 'Une correction avant de valider ?' : listening ? 'Je vous écoute…' : 'Écrivez ou appuyez sur le micro'}
-          disabled={!assistant}
+          placeholder={!net.online ? 'Hors connexion : lecture seule' : openChoice ? 'Ou répondez autre chose…' : openConfirm ? 'Une correction avant de valider ?' : listening ? 'Je vous écoute…' : 'Écrivez ou appuyez sur le micro'}
+          disabled={!canSend}
           aria-label="Votre message"
         />
-        <button className="send" disabled={busy || !text.trim() || !assistant} aria-label="Envoyer">
+        <button className="send" disabled={busy || !text.trim() || !canSend} aria-label="Envoyer">
           <PaperPlaneRight size={22} />
         </button>
       </form>

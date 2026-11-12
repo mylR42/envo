@@ -6,7 +6,7 @@
  * Téléphone : barre d'onglets en bas (geste du pouce). Ordinateur (≥ 1024 px) :
  * barre latérale. Les deux sont TOUJOURS rendues, la feuille de style choisit.
  */
-import { ChatCircleDots, Gear, House, SignOut } from '@phosphor-icons/react';
+import { ChatCircleDots, Gear, House, SignOut, WifiSlash } from '@phosphor-icons/react';
 import { useCallback, useEffect, useState } from 'react';
 import { api, type User } from './lib/api';
 import { AuthScreen } from './screens/AuthScreen';
@@ -14,6 +14,7 @@ import { Dashboard } from './screens/Dashboard';
 import { AssistDevis } from './screens/AssistDevis';
 import { Settings } from './screens/Settings';
 import { Brand, Logo } from './ui/Brand';
+import { clearOfflineData, rememberAccount, sinceLabel, useOffline } from './lib/offline';
 
 export type Route = { screen: 'home' } | { screen: 'devis'; id?: string; start?: string; voice?: boolean } | { screen: 'settings'; section?: string };
 
@@ -58,8 +59,15 @@ export function App() {
     return () => window.removeEventListener('hashchange', on);
   }, []);
 
+  const net = useOffline();
+  // Un autre compte sur cet appareil : on oublie les copies hors ligne du précédent.
+  useEffect(() => {
+    if (me?.user) void rememberAccount(me.user.id);
+  }, [me?.user]);
+
   const logout = useCallback(async () => {
     await api.post('/api/auth/logout').catch(() => {});
+    await clearOfflineData();
     setMe((m) => (m ? { ...m, user: null } : m));
     go('/');
   }, []);
@@ -123,12 +131,25 @@ export function App() {
             );
           })()}
         </span>
+        {!net.online && (
+          <span className="apphead__off" title="Hors connexion">
+            <WifiSlash size={16} weight="bold" /> Hors ligne
+          </span>
+        )}
         <a href="#/parametres" className="apphead__me" aria-label={`Mon compte : ${me.user.name || me.user.email}`} title={me.user.name || me.user.email}>
           {initials(me.user.name || me.user.email)}
         </a>
       </header>
 
       <main className="main">
+        {!net.online && (
+          <div className="offline" role="status">
+            <WifiSlash size={20} />
+            <span>
+              <strong>Hors connexion.</strong> {sinceLabel(net.since) ? `Vous consultez les données du ${sinceLabel(net.since)}.` : 'Vous consultez les dernières données gardées sur cet appareil.'} Rien n’est envoyé tant que le réseau n’est pas revenu.
+            </span>
+          </div>
+        )}
         {route.screen === 'home' && <Dashboard user={me.user} assistant={me.assistant} onStart={startSession} />}
         {route.screen === 'devis' && <AssistDevis key={route.id ?? 'liste'} id={route.id} assistant={me.assistant} start={pendingStart} onStarted={() => setPendingStart(null)} />}
         {route.screen === 'settings' && (

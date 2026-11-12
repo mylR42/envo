@@ -1,5 +1,12 @@
 # Journal des versions
 
+## 0.7.0 — 12/11/2026
+
+Hors ligne, avec les dernières données.
+- L’appli s’ouvre sans réseau (service worker `sw.js`) : tableau de bord, séances, paramètres et mémoire tels qu’à la dernière connexion. Les dernières séances sont lues d’avance pour s’ouvrir aussi hors ligne.
+- « Hors ligne » dans l’en-tête et un bandeau qui dit de quand datent les données ; nouveau devis, envoi, choix, validation et actualisation sont inactifs : rien n’est envoyé sans réseau, ni en différé à votre insu.
+- Les copies sont effacées à la déconnexion et quand un autre compte se connecte sur l’appareil.
+
 ## 0.6.0 — 10/11/2026
 
 Parler à Envo par Siri, et en mains libres sur Android.

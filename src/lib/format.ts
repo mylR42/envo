@@ -1,5 +1,13 @@
 /** Montants et totaux d'un brouillon de devis. PUR, testé. */
-import type { DraftLine } from './api';
+/** Une ligne de brouillon de devis (partagé avec le serveur : ce fichier ne dépend pas du navigateur). */
+export interface DraftLine {
+  designation: string;
+  quantite: number;
+  unite?: string;
+  prix_unitaire_ht: number;
+  tva?: number;
+  origine?: string;
+}
 
 export const euros = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
 

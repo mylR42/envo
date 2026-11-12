@@ -56,6 +56,7 @@ import { euros, relDate, STATUS_LABEL, toolLabel } from '../lib/format';
 import { canListen, canSpeak, speak, stopSpeaking } from '../lib/voice';
 import { BarList, ChartCard, ColumnChart, DataTable, fullEuros, SegmentBar, type Row } from '../ui/Charts';
 import { PageHead } from '../ui/PageHead';
+import { useOffline } from '../lib/offline';
 import { groupPipeline, statusFamily } from '../lib/status';
 
 interface Dash {
@@ -382,7 +383,7 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
     );
     // Rien en mémoire, ou plus de 30 min : la lecture part toute seule, l'écran garde ce qu'il montre.
     void Promise.all([st, o]).then(([s, r]) => {
-      if (started.current || !assistant || !s?.ok || !r) return;
+      if (started.current || !assistant || !s?.ok || !r || !navigator.onLine) return;
       started.current = true;
       // Une lecture tourne déjà (autre onglet, page rechargée) : on reprend son suivi.
       if (r.collecting) void follow();
@@ -399,8 +400,15 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
     onStart({ text: `Aide-moi à relancer le devis ${q.ref} de ${q.client} (${q.objet}${q.montant_ht !== null ? `, ${q.montant_ht} € HT` : ''}), envoyé il y a ${q.jours ?? '?'} jours : propose-moi un message de relance.` });
   const goTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
+  const net = useOffline();
   const o = ov?.overview ?? null;
   const connected = status?.ok === true;
+  const live = assistant && net.online;
+
+  // Avec du réseau, les dernières séances sont lues d'avance : elles s'ouvriront aussi hors ligne.
+  useEffect(() => {
+    if (net.online && d?.recent.length) for (const c of d.recent.slice(0, 6)) void api.get(`/api/conversations/${c.id}`).catch(() => {});
+  }, [d, net.online]);
   const kpi = (k: string) => o?.kpis.find((x) => x.cle === k) ?? null;
   const toFollow = o?.devis_a_relancer ?? [];
   const unpaid = kpi('factures_impayees');
@@ -427,11 +435,11 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
         actions={
           <div className="quick">
             {canListen() && (
-              <button className="btn btn--accent" onClick={() => onStart({ voice: true })} disabled={!assistant}>
+              <button className="btn btn--accent" onClick={() => onStart({ voice: true })} disabled={!live}>
                 <Microphone size={20} /> Dicter un devis
               </button>
             )}
-            <button className="btn btn--primary" onClick={() => onStart()} disabled={!assistant}>
+            <button className="btn btn--primary" onClick={() => onStart()} disabled={!live}>
               <Plus size={20} /> Nouveau devis
             </button>
           </div>
@@ -482,7 +490,7 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
               ) : null}
             </span>
             {assistant && (
-              <button className="icon-btn icon-btn--sm" onClick={collect} disabled={collecting} aria-label="Actualiser depuis Interfast" title="Actualiser depuis Interfast">
+              <button className="icon-btn icon-btn--sm" onClick={collect} disabled={collecting || !net.online} aria-label="Actualiser depuis Interfast" title="Actualiser depuis Interfast">
                 <ArrowClockwise size={18} className={collecting ? 'spin' : ''} />
               </button>
             )}
@@ -620,7 +628,7 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
                     <ul className="list">
                       {toFollow.map((q) => (
                         <li key={q.ref + q.client}>
-                          <button className="list__btn" onClick={() => relancer(q)} disabled={!assistant}>
+                          <button className="list__btn" onClick={() => relancer(q)} disabled={!live}>
                             <span className="list__icon list__icon--warn" aria-hidden="true">
                               <Hourglass size={20} />
                             </span>
@@ -746,7 +754,7 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
         <section className={`card conn${status && status.configured && !status.ok ? ' conn--down' : ''}`}>
           <h2>
             {connected ? <PlugsConnected size={20} /> : <Plugs size={20} />} Connexion Interfast
-            <span className={`badge h2__badge ${connected ? 'badge--ok' : status?.configured ? 'badge--late' : ''}`}>{!status ? '…' : connected ? 'Connectée' : status.configured ? 'En erreur' : 'Non configurée'}</span>
+            <span className={`badge h2__badge ${!net.online ? '' : connected ? 'badge--ok' : status?.configured ? 'badge--late' : ''}`}>{!net.online ? 'Hors ligne' : !status ? '…' : connected ? 'Connectée' : status.configured ? 'En erreur' : 'Non configurée'}</span>
           </h2>
           {status?.configured && !status.ok && (
             <p className="alert alert--error">

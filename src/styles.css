@@ -716,6 +716,43 @@ code {
   color: #dbe4ff;
 }
 
+/* ---------- Hors ligne ---------- */
+.offline {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  margin: 0.8rem 1rem 0;
+  padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  background: #fff7e0;
+  border: 1px solid #f3d27a;
+  color: #6b4100;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+.offline svg {
+  flex: none;
+  margin-top: 0.1rem;
+}
+.apphead__off {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: var(--amber);
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+@media (min-width: 1024px) {
+  .offline {
+    margin: 1rem 2rem 0;
+  }
+}
+
 /* ---------- En-tête de l'appli ---------- */
 .apphead {
   position: sticky;
