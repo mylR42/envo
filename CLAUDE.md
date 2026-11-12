@@ -140,6 +140,24 @@ changement de compte (`clearOfflineData`, `rememberAccount`). Une nouvelle route
 de lecture à garder hors ligne s'ajoute à `READS` ; changer `sw.js` = monter
 `VERSION`. Le tableau de bord ouvre d'avance les 6 dernières séances.
 
+## ⚠️ Règles d'écran à ne JAMAIS reproduire (12/11/2026)
+
+Demande du propriétaire : « mets en mémoire pour ne jamais reproduire ça ».
+
+1. **Rien de lisible sous la barre d'état de l'iPhone.** La page est dessinée
+   sous elle (`black-translucent`) et iOS y FLOUTE le contenu : le logo et
+   « Envo » passaient dessous. Tout bloc collé en haut commence à
+   `var(--safe-top)` + une marge ; le bas respecte `var(--safe-bottom)`.
+   Toujours ces variables (`:root`), JAMAIS `env(safe-area-inset-*)` en direct.
+2. **L'écran d'entrée est centré verticalement** : deux espaces égaux
+   (`.auth::before` bleu / `::after` clair, barre d'état et barre d'accueil
+   AJOUTÉES en padding), sans défilement jusqu'à l'iPhone SE (667 px de haut :
+   la phrase d'accroche disparaît sous 700 px).
+3. **Vérifier avant de livrer** : `node tools/verifier-iphone.cjs` (sur la démo)
+   simule l'encoche, hachure la barre d'état et ÉCHOUE si un texte passe
+   dessous ou si l'entrée est décentrée. Chromium n'a pas d'encoche : sans cette
+   simulation, ces défauts ne se voient pas en capture.
+
 ## En-tête
 
 ⚠️ **Un en-tête sur CHAQUE écran** (demande du 09/11/2026) : `.apphead` dans

@@ -1,5 +1,11 @@
 # Journal des versions
 
+## 0.7.1 — 12/11/2026
+
+- iPhone : plus rien sous la barre d’état (le logo et « Envo » y étaient floutés) ; zones sûres via `--safe-top` / `--safe-bottom` partout.
+- Écran d’entrée centré verticalement sur tous les téléphones, sans défilement jusqu’à l’iPhone SE.
+- `tools/verifier-iphone.cjs` : contrôle automatique (encoche simulée) avant chaque livraison.
+
 ## 0.7.0 — 12/11/2026
 
 Hors ligne, avec les dernières données.
