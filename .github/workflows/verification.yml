@@ -55,6 +55,8 @@ jobs:
         run: |
           grep -q "content=\"${GITHUB_SHA}\"" dist/index.html
           node --check dist-server/server.mjs
+          # Une police en data: serait bloquée par la CSP (font-src 'self').
+          ! grep -l "url(data:font" dist/assets/*.css
 
       - name: Publication dans la branche dist
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

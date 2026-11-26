@@ -312,7 +312,9 @@ titre de carte et chaque bouton porte une icône (`regular`, `bold` sous 16 px e
 pour l'onglet actif, jamais `fill` sauf les étoiles de note) ; jamais d'emoji.
 Les noms techniques d'Interfast s'affichent en français par `fieldLabel()` /
 `toolLabel()` (`lib/format.ts`, testés) ;
-police Manrope embarquée. Identité « atelier » (bleu de travail, jaune pour la
+police Manrope embarquée — ⚠️ jamais insérée en `data:` dans la CSS
+(`assetsInlineLimit` de `vite.config.ts`, contrôle en CI) : la CSP
+`font-src 'self'` la bloquerait (erreurs console du 26/11/2026). Identité « atelier » (bleu de travail, jaune pour la
 voix), volontairement différente de Pixo.
 
 ## Commandes
