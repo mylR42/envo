@@ -30,6 +30,7 @@ import {
   CheckCircle,
   ClipboardText,
   ClockCounterClockwise,
+  Coins,
   FileText,
   HandWaving,
   Hourglass,
@@ -37,6 +38,7 @@ import {
   Lightning,
   Microphone,
   PaperPlaneTilt,
+  Percent,
   Plugs,
   PlugsConnected,
   Plus,
@@ -58,6 +60,7 @@ import { BarList, ChartCard, ColumnChart, DataTable, fullEuros, SegmentBar, type
 import { PageHead } from '../ui/PageHead';
 import { useOffline } from '../lib/offline';
 import { groupPipeline, statusFamily } from '../lib/status';
+import { pct, periodRate, splitMargin } from '../lib/margin';
 
 interface Dash {
   sessions_month: number;
@@ -102,6 +105,8 @@ const KPI_ICON: Record<string, typeof FileText> = {
   devis_acceptes_mois: CheckCircle,
   taux_transformation: TrendUp,
   ca_facture_mois: Receipt,
+  marge_mois: Coins,
+  taux_marge: Percent,
   factures_impayees: WarningCircle,
 };
 
@@ -416,7 +421,21 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
 
   /* Séries des graphiques */
   const sr = o?.series;
-  const caRows: Row[] = (sr?.ca_mensuel ?? []).map((m) => ({ label: monthShort(m.mois), full: monthLong(m.mois), values: { ca: m.montant_ht } }));
+  // CA coupé en marge + coûts (le total reste le CA) ; un mois sans coûts connus reste gris, « marge inconnue ».
+  const caMonths = sr?.ca_mensuel ?? [];
+  const caRows: Row[] = caMonths.map((m) => {
+    const x = splitMargin(m);
+    return { label: monthShort(m.mois), full: monthLong(m.mois), values: { ca: m.montant_ht, marge: x.marge, couts: x.couts, inconnu: x.inconnu, taux: x.taux } };
+  });
+  const hasMargin = caRows.some((r) => r.values.marge !== null);
+  const caSeries = hasMargin
+    ? [
+        { key: 'marge', label: 'Marge brute', slot: 3 as const },
+        { key: 'couts', label: 'Coûts directs', slot: 1 as const },
+        ...(caRows.some((r) => r.values.inconnu !== null) ? [{ key: 'inconnu', label: 'Marge inconnue', slot: 0 as const }] : []),
+      ]
+    : [{ key: 'ca', label: 'CA facturé HT', slot: 1 as const }];
+  const marginRate = periodRate(caMonths);
   const devisRows: Row[] = (sr?.devis_mensuels ?? []).map((m) => ({ label: monthShort(m.mois), full: monthLong(m.mois), values: { acceptes: m.acceptes, en_attente: m.en_attente, refuses: m.refuses } }));
   const devisSeries = [
     { key: 'acceptes', label: 'Acceptés', slot: 3 as const },
@@ -556,12 +575,22 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
               <div className="charts">
                 <ChartCard
                   icon={<Receipt size={18} />}
-                  title="CA facturé"
-                  sub="par mois, HT"
+                  title={hasMargin ? 'CA facturé et marge' : 'CA facturé'}
+                  sub={hasMargin ? `par mois, HT · marge brute ${pct(marginRate)} sur la période` : 'par mois, HT · marge non disponible depuis Interfast'}
                   view={view}
-                  empty={allNull(caRows) ? 'Non disponible depuis Interfast.' : null}
-                  chart={<ColumnChart rows={caRows} series={[{ key: 'ca', label: 'CA facturé HT', slot: 1 }]} caption="CA facturé HT par mois" />}
-                  table={<DataTable rows={caRows} cols={[{ key: 'ca', label: 'CA HT' }]} total />}
+                  empty={caRows.every((r) => r.values.ca === null) ? 'Non disponible depuis Interfast.' : null}
+                  chart={<ColumnChart rows={caRows} series={caSeries} caption="CA facturé HT par mois, dont marge brute" totalLabel="CA HT" />}
+                  table={
+                    <DataTable
+                      rows={caRows}
+                      cols={[
+                        { key: 'ca', label: 'CA HT' },
+                        { key: 'marge', label: 'Marge' },
+                        { key: 'taux', label: 'Taux', format: pct, total: marginRate },
+                      ]}
+                      total
+                    />
+                  }
                 />
                 <ChartCard
                   icon={<FileText size={18} />}

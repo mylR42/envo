@@ -9,7 +9,7 @@ Guide pour Claude Code sur ce dépôt.
 devis avec l'artisan, à la voix ou au clavier, et le crée dans **Interfast**.
 
 Écrans : écran d'entrée (comptes), **Tableau de bord**, **AssistDevis**,
-**Paramètres**. Version : `version` de `package.json`, affichée sur l'écran
+**Planning** (0.8.0), **Paramètres**. Version : `version` de `package.json`, affichée sur l'écran
 d'entrée et dans Paramètres.
 
 Stack reprise de **Pixo** (demande du propriétaire, 07/11/2026) — voir le
@@ -91,6 +91,43 @@ disponible (bascule `envo.vue`).
 `GET /api/interfast/status` : vrai contact à chaque appel (délai, outils) +
 activité de la semaine (`tool_log`). Les réponses SSE passent par `sse()` :
 `X-Accel-Buffering: no` et un ping toutes les 15 s (nginx coupe à 60 s de silence).
+
+**Marge** (0.8.0) : `ca_mensuel[].marge_ht` et les indicateurs `marge_mois`,
+`taux_marge`. Marge BRUTE = CA HT − coûts directs lus dans Interfast. ⚠️ Jamais
+estimée avec un taux : sans coûts, `null` et un manque. `sanitize()` écarte une
+marge > CA. À l'écran (`lib/margin.ts`, testé) : colonne de CA coupée en marge
+(`--series-3`) + coûts (`--series-1`), un mois sans coûts reste gris
+« marge inconnue ». Huit tuiles : 2 × 4 (jamais 6 + 2).
+
+## Planning (`server/planning.ts`, `src/screens/Planning.tsx`)
+
+Même méthode que le tableau de bord, par la boucle commune `collectRead()`
+(`server/overview.ts` : outils de lecture seuls, recette rejouée, outil local
+qui publie) : `publier_planning`, une semaine (lundi → dimanche), en MÉMOIRE
+(10 min fraîche, 24 h affichable), tâche suivie par `GET /api/planning?du=`.
+La recette (`settings.planning_recipe`) garde les dates sous forme de repères
+`{{debut}}` / `{{fin}}` (`templateArgs` / `fillArgs`) : rejouée pour une autre
+semaine, elle lit la bonne période. ⚠️ Planifier ou modifier passe par une
+séance de l'assistante (bouton → texte de départ) : validation comme un devis.
+
+## Import d'un planning fournisseur (`server/planimport.ts`, `ImportPanel.tsx`)
+
+PDF (8 Mo, `%PDF-` vérifié, JAMAIS gardé) + consignes → bloc `document` à
+Claude (modèle principal, effort `medium`) → `proposer_import`. ⚠️ Les outils
+d'écriture sont DÉCRITS dans la consigne (`describeWriteTools`), jamais donnés :
+le modèle ne peut pas les appeler. `sanitizeProposal()` : une ligne n'est
+importable que si son outil est un outil d'ÉCRITURE connu. Proposition gardée
+(table `imports`, trace) ; « Valider l'import » exécute les SEULES lignes
+cochées avec les arguments EN BASE (jamais ceux de l'écran), une seule fois
+(`state` proposee → import_en_cours atomique, 409 sinon), ligne à ligne, en
+tâche de fond. Seule route au-delà de 1 Mo : `POST /api/planning/imports`
+(12 Mo, nginx compris).
+
+## Gmail
+
+Étude dans `GMAIL.md` (rien de codé) : IMAP/SMTP + mot de passe d'application
+d'abord, OAuth si Envo s'ouvre à d'autres artisans. Envoyer un e-mail = une
+écriture, validée comme le reste.
 
 ## REX (retours d'expérience)
 
@@ -188,7 +225,9 @@ server/mcp.ts      client MCP « Streamable HTTP » écrit à la main, isWriteTo
 server/llm.ts      appel à Claude (SDK), seul endroit qui parle à Anthropic
 server/crypto.ts   AES-256-GCM des secrets en base
 server/db.ts       schéma (créations idempotentes ; évolutions en ADD COLUMN IF NOT EXISTS)
-src/screens/       AuthScreen, Dashboard, AssistDevis, Settings
+server/planning.ts lecture du planning (semaine), recette aux dates repères
+server/planimport.ts  import d'un PDF fournisseur : proposition, nettoyage
+src/screens/       AuthScreen, Dashboard, AssistDevis, Planning (+ ImportPanel), Settings
 src/lib/           api (dont le flux SSE), voice, format (totaux du brouillon)
 tests/server/      l'API sur PGlite avec faux Claude et faux serveur MCP Interfast
 tools/demo-server.ts  démo sur un port (interface + API, /demo = connecté d'office, scénario rejoué par séance) — exclu du déploiement

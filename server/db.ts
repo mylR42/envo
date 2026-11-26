@@ -170,6 +170,23 @@ export const SCHEMA = [
      last_used_at timestamptz
    )`,
   `CREATE INDEX IF NOT EXISTS voice_tokens_user ON voice_tokens(user_id)`,
+  // Planning (26/11/2026) : la recette de la dernière lecture, dates remplacées par {{debut}} / {{fin}} (aucune donnée métier).
+  `ALTER TABLE settings ADD COLUMN IF NOT EXISTS planning_recipe jsonb`,
+  // Import d'un planning fournisseur (26/11/2026) : la PROPOSITION et ce qui a été écrit, trace des écritures proposées.
+  // Le PDF n'est jamais gardé.
+  `CREATE TABLE IF NOT EXISTS imports (
+     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     file_name text NOT NULL DEFAULT '',
+     consignes text NOT NULL DEFAULT '',
+     state text NOT NULL,
+     proposal jsonb,
+     results jsonb,
+     error text NOT NULL DEFAULT '',
+     created_at timestamptz NOT NULL DEFAULT now(),
+     decided_at timestamptz
+   )`,
+  `CREATE INDEX IF NOT EXISTS imports_user ON imports(user_id, created_at DESC)`,
 ];
 
 export async function applySchema(db: Db): Promise<void> {

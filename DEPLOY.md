@@ -107,6 +107,10 @@ Deux réglages nginx propres à Envo : la route d'un tour de l'assistante
 (`/api/conversations/…/turn`) n'est **pas mise en tampon** et attend 10 minutes
 (réponse en flux, plusieurs appels à Claude et à Interfast) ; et
 `Permissions-Policy` autorise le **micro** pour le site lui-même (dictée).
+Depuis la 0.8.0, `/api/planning/imports` accepte **12 Mo** (PDF fournisseur en
+base64) : ⚠️ le snippet nginx n'est réécrit qu'à l'installation, il faut
+relancer `install-vps.sh` (ou recopier `deploy/nginx-envo-app.conf`) une fois,
+sinon nginx refuse les PDF de plus de ~1,5 Mo.
 
 ## Sauvegardes
 

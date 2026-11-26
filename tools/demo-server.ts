@@ -97,12 +97,12 @@ const OVERVIEW: Block[][] = [
       input: {
         series: {
           ca_mensuel: [
-            { mois: '2026-06', montant_ht: 14200 },
-            { mois: '2026-07', montant_ht: 9850 },
-            { mois: '2026-08', montant_ht: 6120 },
-            { mois: '2026-09', montant_ht: 17340 },
-            { mois: '2026-10', montant_ht: 15980 },
-            { mois: '2026-11', montant_ht: 12380 },
+            { mois: '2026-06', montant_ht: 14200, marge_ht: 4970 },
+            { mois: '2026-07', montant_ht: 9850, marge_ht: 3150 },
+            { mois: '2026-08', montant_ht: 6120, marge_ht: 1840 },
+            { mois: '2026-09', montant_ht: 17340, marge_ht: 5900 },
+            { mois: '2026-10', montant_ht: 15980, marge_ht: 5270 },
+            { mois: '2026-11', montant_ht: 12380, marge_ht: null },
           ],
           devis_mensuels: [
             { mois: '2026-06', en_attente: 0, acceptes: 11200, refuses: 2400 },
@@ -131,6 +131,8 @@ const OVERVIEW: Block[][] = [
           { cle: 'devis_acceptes_mois', libelle: 'Devis acceptés ce mois', valeur: 4, unite: 'nombre', detail: '' },
           { cle: 'taux_transformation', libelle: 'Taux de transformation', valeur: 46, unite: 'pourcent', detail: 'sur 90 jours' },
           { cle: 'ca_facture_mois', libelle: 'CA facturé ce mois', valeur: 12380, unite: 'eur', detail: 'HT, 9 factures' },
+          { cle: 'marge_mois', libelle: 'Marge brute ce mois', valeur: null, unite: 'eur', detail: 'coûts de novembre pas encore saisis' },
+          { cle: 'taux_marge', libelle: 'Taux de marge', valeur: 33, unite: 'pourcent', detail: 'sur 5 mois' },
           { cle: 'factures_impayees', libelle: 'Factures impayées', valeur: 3240, unite: 'eur', detail: 'TTC, 2 factures' },
         ],
         devis_a_relancer: [
@@ -159,9 +161,75 @@ const OVERVIEW: Block[][] = [
   ],
 ];
 
+/** Planning de démonstration : la semaine EN COURS, quelle que soit la date. */
+const monday = (() => {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d;
+})();
+const dayN = (n: number) => new Date(monday.getTime() + n * 86_400_000).toISOString().slice(0, 10);
+const PLANNING: Block[][] = [
+  [{ type: 'tool_use', id: 'pl_1', name: 'if_list_quotes', input: { from: dayN(0), to: dayN(6) } }],
+  [
+    {
+      type: 'tool_use',
+      id: 'pl_2',
+      name: 'publier_planning',
+      input: {
+        evenements: [
+          { ref: 'I-201', date: dayN(0), debut: '08:00', fin: '12:00', type: 'chantier', objet: 'Sanitaires école — démarrage', client: 'Mairie de Trélazé', lieu: 'École J. Ferry, Trélazé', intervenants: ['Julien', 'Paul'], statut: 'confirmé' },
+          { ref: 'I-202', date: dayN(0), debut: '14:00', fin: '15:30', type: 'rdv', objet: 'Visite technique tableau électrique', client: 'M. Bernard', lieu: '4 rue Lenepveu, Angers', intervenants: ['Paul'], statut: 'planifié' },
+          { ref: 'I-203', date: dayN(1), debut: '08:30', fin: '17:00', type: 'chantier', objet: 'Sanitaires école', client: 'Mairie de Trélazé', lieu: 'École J. Ferry, Trélazé', intervenants: ['Julien'], statut: 'confirmé' },
+          { ref: 'L-88', date: dayN(2), debut: '07:30', fin: '', type: 'livraison', objet: 'Livraison chauffe-eau 200 L (Cedeo)', client: 'Martin Dupont', lieu: '12 rue des Lices, Angers', intervenants: [], statut: 'annoncée' },
+          { ref: 'I-204', date: dayN(2), debut: '09:00', fin: '12:30', type: 'intervention', objet: 'Remplacement chauffe-eau', client: 'Martin Dupont', lieu: '12 rue des Lices, Angers', intervenants: ['Paul'], statut: 'planifié' },
+          { ref: 'I-205', date: dayN(3), debut: '', fin: '', type: 'chantier', objet: 'Pompe à chaleur — pose', client: 'Mme Leroy', lieu: 'Les Ponts-de-Cé', intervenants: ['Julien', 'Paul'], statut: 'à confirmer' },
+          { ref: 'I-206', date: dayN(4), debut: '10:00', fin: '11:00', type: 'intervention', objet: 'Fuite sous évier', client: 'M. Petit', lieu: 'Avrillé', intervenants: ['Julien'], statut: 'planifié' },
+        ],
+        intervenants: ['Julien', 'Paul', 'Inès'],
+        manques: [],
+        resume: 'Semaine chargée : le chantier de l’école occupe Julien lundi et mardi, la livraison Cedeo de mercredi n’est affectée à personne, Inès n’a rien de planifié.',
+      },
+    },
+  ],
+];
+const IMPORT: Block[][] = [
+  [{ type: 'tool_use', id: 'im_1', name: 'if_search_customers', input: { query: 'Dupont' } }],
+  [
+    {
+      type: 'tool_use',
+      id: 'im_2',
+      name: 'proposer_import',
+      input: {
+        fournisseur: 'Cedeo Angers',
+        resume: 'Le PDF annonce 4 livraisons sur deux semaines. Trois sont proposées selon vos consignes ; celle de mercredi est déjà dans le planning.',
+        lignes: [
+          { date: dayN(2), debut: '07:30', fin: '08:00', objet: 'Livraison chauffe-eau 200 L', chantier: 'Martin Dupont — 12 rue des Lices', intervenant: 'Paul', remarque: '', outil: 'if_create_planning_event', arguments: { customer_id: 'c-42', date: dayN(2), start: '07:30', end: '08:00', title: 'Livraison chauffe-eau 200 L (Cedeo)', employee: 'Paul' }, doublon: true },
+          { date: dayN(7), debut: '08:00', fin: '12:00', objet: 'Livraison radiateurs (6) et robinetterie', chantier: 'Mairie de Trélazé — école', intervenant: 'Julien', remarque: 'Matin = 8 h – 12 h, selon vos consignes.', outil: 'if_create_planning_event', arguments: { customer_id: 'c-17', date: dayN(7), start: '08:00', end: '12:00', title: 'Livraison radiateurs et robinetterie (Cedeo)', employee: 'Julien' }, doublon: false },
+          { date: dayN(9), debut: '08:00', fin: '12:00', objet: 'Livraison PAC air-eau 8 kW', chantier: 'Mme Leroy — Les Ponts-de-Cé', intervenant: 'Julien', remarque: '', outil: 'if_create_planning_event', arguments: { customer_id: 'c-31', date: dayN(9), start: '08:00', end: '12:00', title: 'Livraison PAC air-eau (Cedeo)', employee: 'Julien' }, doublon: false },
+          { date: dayN(10), debut: '', fin: '', objet: 'Livraison tubes multicouche', chantier: '', intervenant: '', remarque: 'Chantier « Résidence Les Acacias » introuvable dans Interfast : à créer d’abord, ou à rattacher à la main.', outil: '', arguments: {}, doublon: false },
+        ],
+        ignores: ['Reprise de palettes du vendredi : pas une intervention, laissée de côté.'],
+        manques: [],
+      },
+    },
+  ],
+];
+
+const reply = (p: { model: string }, content: Block[]) =>
+  ({ id: `msg_${Date.now()}`, type: 'message', role: 'assistant', model: p.model, content, stop_reason: content.some((b) => b.type === 'tool_use') ? 'tool_use' : 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } }) as unknown as BetaMessage;
+
 const llm: Llm = {
   create: async (p) => {
     const step = p.messages.filter((m) => m.role === 'assistant').length;
+    const sys = JSON.stringify(p.system);
+    if (sys.includes('planning d\'une entreprise')) {
+      await new Promise((r) => setTimeout(r, 1200));
+      return reply(p, PLANNING[step] ?? PLANNING[1]!);
+    }
+    if (sys.includes('import d\'un planning de fournisseur')) {
+      await new Promise((r) => setTimeout(r, 2000));
+      return reply(p, IMPORT[step] ?? IMPORT[1]!);
+    }
     if (JSON.stringify(p.system).includes('tableau de bord')) {
       // Un peu de lenteur, pour voir la progression comme sur un vrai compte.
       await new Promise((r) => setTimeout(r, step === 0 ? 1500 : 4000));
@@ -189,6 +257,8 @@ const llm: Llm = {
 const db = pgliteDb(new PGlite());
 await applySchema(db);
 const interfast = fakeInterfast();
+// En démo seulement : un outil d'écriture de planning, pour l'import du PDF fournisseur.
+(interfast.tools as unknown[]).push({ name: 'create_planning_event', description: 'Crée un événement dans le planning', inputSchema: { type: 'object', properties: { customer_id: { type: 'string' }, date: { type: 'string' }, start: { type: 'string' }, end: { type: 'string' }, title: { type: 'string' }, employee: { type: 'string' } } } });
 let lastCode = '';
 const cfg = loadConfig({ PUBLIC_URL: ORIGIN, ANTHROPIC_API_KEY: 'demo', ENVO_COMMIT: 'demo' });
 const api = createApp({

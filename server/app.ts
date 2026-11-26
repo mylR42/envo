@@ -31,6 +31,12 @@ import { toView, type ViewItem } from './view';
 import { matchOption, speakable, voiceDecision } from '../src/lib/speech-text';
 import { toolLabel } from '../src/lib/format';
 import { collectOverview, OVERVIEW_TTL_MS, type Overview, type RecipeCall } from './overview';
+import { addDays, collectPlanning, mondayOf, type Planning } from './planning';
+import { isPdf, PDF_MAX_BYTES, preparerImport, type ImportProposal } from './planimport';
+
+/** Corps d'un envoi de PDF : 8 Mo en base64 (× 4/3) plus les consignes. */
+const IMPORT_BODY_MAX = 12 * 1024 * 1024;
+const PLANNING_TTL_MS = 10 * 60_000;
 
 export interface Deps {
   cfg: Config;
@@ -162,14 +168,16 @@ export function createApp(deps: Deps) {
     await next();
   });
 
+  // 1 Mo par requête ; seul l'envoi d'un PDF de planning fournisseur va plus loin (8 Mo de PDF, en base64).
+  const maxBody = (c: Context) => (c.req.method === 'POST' && c.req.path === '/api/planning/imports' ? IMPORT_BODY_MAX : 1024 * 1024);
   app.use('/api/*', async (c, next) => {
-    if (Number(c.req.header('content-length') ?? 0) > 1024 * 1024) return c.json({ error: 'requête trop volumineuse' }, 413);
+    if (Number(c.req.header('content-length') ?? 0) > maxBody(c)) return c.json({ error: 'requête trop volumineuse' }, 413);
     await next();
     if (!c.res.headers.has('Cache-Control')) c.res.headers.set('Cache-Control', 'no-store');
   });
   app.use('/api/*', async (c, next) => {
     if (c.req.method === 'GET' || c.req.method === 'HEAD') return next();
-    return bodyLimit({ maxSize: 1024 * 1024, onError: (cc) => cc.json({ error: 'requête trop volumineuse' }, 413) })(c, next);
+    return bodyLimit({ maxSize: maxBody(c), onError: (cc) => cc.json({ error: 'requête trop volumineuse' }, 413) })(c, next);
   });
 
   /* ---------- Anti-CSRF : une écriture vient de notre propre origine ---------- */
@@ -476,7 +484,7 @@ export function createApp(deps: Deps) {
       keyHint = hint(k);
     }
     // Autre serveur Interfast : les appels mémorisés pour le tableau de bord ne valent plus.
-    if (mcpUrl !== cur.mcp_url) await db.query('UPDATE settings SET overview_recipe = NULL WHERE user_id = $1', [u.id]);
+    if (mcpUrl !== cur.mcp_url) await db.query('UPDATE settings SET overview_recipe = NULL, planning_recipe = NULL WHERE user_id = $1', [u.id]);
     const name = typeof b.name === 'string' ? str(b.name, 80) : u.name;
     await db.query('UPDATE users SET name = $2 WHERE id = $1', [u.id, name]);
     const pick = (k: string, cur: number | null) => (k in b ? num(b[k]) : cur);
@@ -1059,6 +1067,267 @@ export function createApp(deps: Deps) {
       }
     })();
     return c.json({ job: jobView(job) }, 202);
+  });
+
+  /* ---------- Planning Interfast (0.8.0) ---------- */
+  /*
+   * Même méthode que le tableau de bord : une lecture en TÂCHE de fond, outils de
+   * lecture seuls, résultat en MÉMOIRE (10 min fraîche, 24 h affichable), par
+   * compte et par semaine. Une modification passe par l'assistante (« Valider »).
+   */
+  const plannings = new Map<string, { at: number; key: string; data: Planning }>();
+  type PlanJob = { du: string; state: 'en_cours' | 'fini' | 'erreur'; status: string; startedAt: number; endedAt?: number; calls: number; error?: string };
+  const planJobs = new Map<string, PlanJob>();
+  const planJobView = (j: PlanJob | undefined) => j && { du: j.du, state: j.state, status: j.status, calls: j.calls, elapsedMs: (j.endedAt ?? Date.now()) - j.startedAt, error: j.error };
+  const weekOf = (v: unknown) => {
+    const d = typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(new Date(`${v}T12:00:00Z`).getTime()) ? v : now().toISOString().slice(0, 10);
+    const du = mondayOf(d);
+    return { du, au: addDays(du, 6) };
+  };
+  const forgetPlannings = (userId: string) => {
+    for (const k of plannings.keys()) if (k.startsWith(`${userId}|`)) plannings.delete(k);
+  };
+
+  app.get('/api/planning', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const { du, au } = weekOf(c.req.query('du'));
+    const s = await loadSettings(u.id);
+    const p = plannings.get(`${u.id}|${du}`);
+    const usable = p && p.key === `${s.mcp_url}|${s.mcp_key_hint}` && now().getTime() - p.at < 24 * 3600_000;
+    const j = planJobs.get(u.id);
+    return c.json({
+      du,
+      au,
+      planning: usable ? p.data : null,
+      at: usable ? new Date(p.at) : null,
+      stale: !usable || now().getTime() - p.at >= PLANNING_TTL_MS,
+      job: j && j.du === du ? planJobView(j) : null,
+      configured: !!s.mcp_url,
+      assistant: llm !== null,
+    });
+  });
+
+  app.post('/api/planning', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    if (!llm || !cfg.anthropic) return c.json({ error: 'assistante non configurée sur le serveur (clé Anthropic absente)' }, 503);
+    const { du, au } = weekOf((await readJson<{ du: string }>(c)).du);
+    const s = await loadSettings(u.id);
+    const mcp = mcpFor(s);
+    if (!mcp) return c.json({ error: 'Interfast n’est pas connecté' }, 400);
+    const cur = planJobs.get(u.id);
+    if (cur?.state === 'en_cours') return c.json({ job: planJobView(cur) }, 202);
+    if (overRate(`planning:${u.id}`, 30, 3600_000)) return c.json({ error: 'trop de lectures du planning en une heure, patientez' }, 429);
+    const anthropic = cfg.anthropic;
+    const job: PlanJob = { du, state: 'en_cours', status: 'Lecture d’Interfast…', startedAt: Date.now(), calls: 0 };
+    planJobs.set(u.id, job);
+    const prev = (await db.query<{ planning_recipe: RecipeCall[] | null }>('SELECT planning_recipe FROM settings WHERE user_id = $1', [u.id]))[0];
+    void (async () => {
+      try {
+        const tools = await toolsFor(u.id, s, mcp);
+        const { planning, recipe } = await collectPlanning(
+          {
+            llm,
+            model: anthropic.overviewModel,
+            thinking: /^claude-sonnet-5-5/.test(anthropic.overviewModel) ? { type: 'between_tools' } : undefined,
+            mcp,
+            mcpTools: tools,
+            recipe: Array.isArray(prev?.planning_recipe) ? prev.planning_recipe : [],
+            today: now().toISOString().slice(0, 10),
+            onStatus: (t) => void (job.status = t),
+            onCall: (e) => void (e.state === 'en_cours' && job.calls++),
+            logTool: async (tool, ok, ms) => {
+              await db.query('INSERT INTO tool_log (user_id, tool, ok, ms) VALUES ($1, $2, $3, $4)', [u.id, tool, ok, ms]);
+            },
+          },
+          du,
+          au,
+        );
+        plannings.set(`${u.id}|${du}`, { at: now().getTime(), key: `${s.mcp_url}|${s.mcp_key_hint}`, data: planning });
+        if (recipe.length) await db.query('UPDATE settings SET planning_recipe = $2::text::jsonb WHERE user_id = $1', [u.id, JSON.stringify(recipe)]);
+        job.state = 'fini';
+      } catch (e) {
+        console.error('planning Interfast :', (e as Error).message);
+        job.state = 'erreur';
+        job.error = e instanceof McpError ? e.message : 'La lecture du planning n’a pas abouti. Réessayez dans un instant.';
+      } finally {
+        job.endedAt = Date.now();
+      }
+    })();
+    return c.json({ job: planJobView(job) }, 202);
+  });
+
+  /* ---------- Import d'un planning fournisseur (PDF) ---------- */
+  /*
+   * ⚠️ Deux temps : PROPOSITION (lecture seule, rien n'est écrit), puis IMPORT au
+   * « Valider l'import », lignes cochées seulement, arguments EXACTS de la
+   * proposition gardée en base — jamais ceux que l'écran renverrait.
+   */
+  type ImportResult = { ligne: number; ok: boolean; message: string };
+  type ImportRow = {
+    id: string;
+    file_name: string;
+    consignes: string;
+    state: 'preparation' | 'proposee' | 'import_en_cours' | 'importee' | 'partielle' | 'echec' | 'abandonnee' | 'erreur';
+    proposal: ImportProposal | null;
+    results: ImportResult[] | null;
+    error: string;
+    created_at: Date;
+    decided_at: Date | null;
+  };
+  const importStatus = new Map<string, string>();
+  const IMPORT_STALE_MS = 15 * 60_000;
+
+  async function ownImport(userId: string, id: string): Promise<ImportRow | null> {
+    if (!isUuid(id)) return null;
+    const r = (await db.query<ImportRow>('SELECT * FROM imports WHERE id = $1 AND user_id = $2', [id, userId]))[0] ?? null;
+    // Serveur redémarré pendant le travail : on le dit au lieu d'attendre sans fin.
+    if (r && (r.state === 'preparation' || r.state === 'import_en_cours') && !importStatus.has(r.id) && now().getTime() - new Date(r.decided_at ?? r.created_at).getTime() > IMPORT_STALE_MS) {
+      const state = r.state === 'preparation' ? 'erreur' : 'echec';
+      const error = r.state === 'preparation' ? 'La préparation a été interrompue. Relancez-la.' : 'L’import a été interrompu : vérifiez dans Interfast ce qui a été créé.';
+      await db.query('UPDATE imports SET state = $3, error = $4 WHERE id = $1 AND user_id = $2', [r.id, userId, state, error]);
+      return { ...r, state, error };
+    }
+    return r;
+  }
+  const importView = (r: ImportRow) => ({
+    id: r.id,
+    file_name: r.file_name,
+    consignes: r.consignes,
+    state: r.state,
+    status: importStatus.get(r.id) ?? '',
+    proposal: r.proposal,
+    results: r.results ?? [],
+    error: r.error,
+    created_at: r.created_at,
+    decided_at: r.decided_at,
+  });
+
+  app.get('/api/planning/imports', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const rows = await db.query<{ id: string; file_name: string; state: string; created_at: Date; lignes: number | null }>(
+      `SELECT id, file_name, state, created_at, jsonb_array_length(proposal->'lignes') AS lignes FROM imports WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`,
+      [u.id],
+    );
+    return c.json({ imports: rows });
+  });
+
+  app.get('/api/planning/imports/:id', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const r = await ownImport(u.id, c.req.param('id'));
+    return r ? c.json({ import: importView(r) }) : c.json({ error: 'introuvable' }, 404);
+  });
+
+  /** 1. La proposition : le PDF part à Claude (jamais gardé), Interfast est LU, rien n'est écrit. */
+  app.post('/api/planning/imports', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    if (!llm || !cfg.anthropic) return c.json({ error: 'assistante non configurée sur le serveur (clé Anthropic absente)' }, 503);
+    const s = await loadSettings(u.id);
+    const mcp = mcpFor(s);
+    if (!mcp) return c.json({ error: 'Interfast n’est pas connecté' }, 400);
+    const b = await readJson<{ nom: string; pdf: string; consignes: string }>(c);
+    const pdf = typeof b.pdf === 'string' ? Buffer.from(b.pdf.replace(/^data:[^,]*,/, ''), 'base64') : Buffer.alloc(0);
+    if (!isPdf(pdf)) return c.json({ error: 'le fichier n’est pas un PDF' }, 400);
+    if (pdf.length > PDF_MAX_BYTES) return c.json({ error: 'PDF trop lourd (8 Mo au plus)' }, 413);
+    if (overRate(`import:${u.id}`, 20, 3600_000)) return c.json({ error: 'trop d’imports en une heure, patientez' }, 429);
+    const fileName = str(b.nom, 160).replace(/[\u0000-\u001f]/g, '') || 'planning.pdf';
+    const consignes = str(b.consignes, 2000);
+    const row = (await db.query<{ id: string }>('INSERT INTO imports (user_id, file_name, consignes, state, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id', [u.id, fileName, consignes, 'preparation', now()]))[0]!;
+    importStatus.set(row.id, 'Lecture du PDF…');
+    const anthropic = cfg.anthropic;
+    void (async () => {
+      try {
+        const tools = await toolsFor(u.id, s, mcp);
+        const proposal = await preparerImport(
+          {
+            llm,
+            model: anthropic.model,
+            mcp,
+            mcpTools: tools,
+            today: now().toISOString().slice(0, 10),
+            onStatus: (t) => void importStatus.set(row.id, t.replace('Calcul des indicateurs…', 'Préparation de la proposition…')),
+            logTool: async (tool, ok, ms) => {
+              await db.query('INSERT INTO tool_log (user_id, tool, ok, ms) VALUES ($1, $2, $3, $4)', [u.id, tool, ok, ms]);
+            },
+          },
+          pdf,
+          fileName,
+          consignes,
+        );
+        await db.query('UPDATE imports SET state = $3, proposal = $4::text::jsonb WHERE id = $1 AND user_id = $2', [row.id, u.id, 'proposee', JSON.stringify(proposal)]);
+      } catch (e) {
+        console.error('import planning :', (e as Error).message);
+        await db.query('UPDATE imports SET state = $3, error = $4 WHERE id = $1 AND user_id = $2', [row.id, u.id, 'erreur', e instanceof McpError ? e.message : 'La lecture du PDF n’a pas abouti. Réessayez, ou précisez les consignes.']);
+      } finally {
+        importStatus.delete(row.id);
+      }
+    })();
+    return c.json({ id: row.id }, 202);
+  });
+
+  /** 2. L'import : SEULEMENT les lignes cochées, avec les arguments gardés en base. */
+  app.post('/api/planning/imports/:id/valider', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const r = await ownImport(u.id, c.req.param('id'));
+    if (!r) return c.json({ error: 'introuvable' }, 404);
+    const b = await readJson<{ lignes: number[] }>(c);
+    const lines = r.proposal?.lignes ?? [];
+    const picked = [...new Set(Array.isArray(b.lignes) ? b.lignes : [])].filter((i): i is number => Number.isInteger(i) && i >= 0 && i < lines.length && lines[i]!.importable);
+    if (!picked.length) return c.json({ error: 'aucune ligne importable cochée' }, 400);
+    const s = await loadSettings(u.id);
+    const mcp = mcpFor(s);
+    if (!mcp) return c.json({ error: 'Interfast n’est pas connecté' }, 400);
+    // Une seule validation : l'état passe de « proposée » à « en cours » en une requête, ou rien.
+    const took = await db.query('UPDATE imports SET state = $3, decided_at = $4 WHERE id = $1 AND user_id = $2 AND state = $5 RETURNING id', [r.id, u.id, 'import_en_cours', now(), 'proposee']);
+    if (!took.length) return c.json({ error: 'cette proposition a déjà été traitée' }, 409);
+    importStatus.set(r.id, 'Import dans Interfast…');
+    void (async () => {
+      const results: ImportResult[] = [];
+      try {
+        const tools = await toolsFor(u.id, s, mcp, true);
+        for (const i of picked.sort((a, b2) => a - b2)) {
+          const l = lines[i]!;
+          importStatus.set(r.id, `Import dans Interfast : ${results.length + 1} sur ${picked.length}…`);
+          const tool = tools.find((t) => t.name === l.outil);
+          if (!tool || !isWriteTool(tool)) {
+            results.push({ ligne: i, ok: false, message: 'Outil Interfast introuvable (la liste a changé) : ligne non importée.' });
+            continue;
+          }
+          const t0 = Date.now();
+          try {
+            const res = await mcp.callTool(tool.name, l.arguments);
+            await db.query('INSERT INTO tool_log (user_id, tool, ok, ms) VALUES ($1, $2, $3, $4)', [u.id, tool.name, !res.isError, Date.now() - t0]);
+            results.push({ ligne: i, ok: !res.isError, message: res.text.slice(0, 300) });
+          } catch (e) {
+            await db.query('INSERT INTO tool_log (user_id, tool, ok, ms) VALUES ($1, $2, $3, $4)', [u.id, tool.name, false, Date.now() - t0]);
+            results.push({ ligne: i, ok: false, message: e instanceof McpError ? e.message : 'erreur inattendue' });
+          }
+          await db.query('UPDATE imports SET results = $3::text::jsonb WHERE id = $1 AND user_id = $2', [r.id, u.id, JSON.stringify(results)]);
+        }
+      } catch (e) {
+        results.push({ ligne: -1, ok: false, message: e instanceof McpError ? e.message : 'Interfast injoignable.' });
+      }
+      const ok = results.filter((x) => x.ok).length;
+      const state = ok === picked.length ? 'importee' : ok > 0 ? 'partielle' : 'echec';
+      await db.query('UPDATE imports SET state = $3, results = $4::text::jsonb WHERE id = $1 AND user_id = $2', [r.id, u.id, state, JSON.stringify(results)]);
+      forgetPlannings(u.id);
+      importStatus.delete(r.id);
+    })();
+    return c.json({ ok: true }, 202);
+  });
+
+  app.post('/api/planning/imports/:id/abandonner', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const r = await ownImport(u.id, c.req.param('id'));
+    if (!r) return c.json({ error: 'introuvable' }, 404);
+    await db.query('UPDATE imports SET state = $3, decided_at = $4 WHERE id = $1 AND user_id = $2 AND state = $5', [r.id, u.id, 'abandonnee', now(), 'proposee']);
+    return c.json({ ok: true });
   });
 
   /* ---------- Tableau de bord ---------- */

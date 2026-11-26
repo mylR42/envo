@@ -1,28 +1,30 @@
 /**
- * L'application : écran d'entrée sans session, sinon trois écrans — Tableau de
- * bord, AssistDevis, Paramètres. Navigation par le fragment d'URL (#/devis/…),
+ * L'application : écran d'entrée sans session, sinon quatre écrans — Tableau de
+ * bord, AssistDevis, Planning, Paramètres. Navigation par le fragment d'URL (#/devis/…),
  * pour que le retour arrière du téléphone fonctionne sans routeur.
  *
  * Téléphone : barre d'onglets en bas (geste du pouce). Ordinateur (≥ 1024 px) :
  * barre latérale. Les deux sont TOUJOURS rendues, la feuille de style choisit.
  */
-import { ChatCircleDots, Gear, House, SignOut, WifiSlash } from '@phosphor-icons/react';
+import { CalendarBlank, ChatCircleDots, Gear, House, SignOut, WifiSlash } from '@phosphor-icons/react';
 import { useCallback, useEffect, useState } from 'react';
 import { api, type User } from './lib/api';
 import { AuthScreen } from './screens/AuthScreen';
 import { Dashboard } from './screens/Dashboard';
 import { AssistDevis } from './screens/AssistDevis';
 import { Settings } from './screens/Settings';
+import { Planning } from './screens/Planning';
 import { Brand, Logo } from './ui/Brand';
 import { clearOfflineData, rememberAccount, sinceLabel, useOffline } from './lib/offline';
 
-export type Route = { screen: 'home' } | { screen: 'devis'; id?: string; start?: string; voice?: boolean } | { screen: 'settings'; section?: string };
+export type Route = { screen: 'home' } | { screen: 'devis'; id?: string; start?: string; voice?: boolean } | { screen: 'planning'; import?: boolean } | { screen: 'settings'; section?: string };
 
 export function parseRoute(hash: string): Route {
   const h = hash.replace(/^#\/?/, '');
   const [a, b] = h.split('/');
   // « Parler à Envo » (raccourci de l'icône, Assistant Google) : #/devis/voix ouvre une séance en mains libres.
   if (a === 'devis') return { screen: 'devis', id: b && /^[0-9a-f-]{36}$/.test(b) ? b : undefined, voice: b === 'voix' };
+  if (a === 'planning') return { screen: 'planning', import: b === 'import' };
   if (a === 'parametres') return { screen: 'settings', section: b };
   return { screen: 'home' };
 }
@@ -91,6 +93,7 @@ export function App() {
   const tabs = [
     { key: 'home', label: 'Tableau de bord', short: 'Accueil', icon: House, path: '/' },
     { key: 'devis', label: 'AssistDevis', short: 'Devis', icon: ChatCircleDots, path: '/devis' },
+    { key: 'planning', label: 'Planning', short: 'Planning', icon: CalendarBlank, path: '/planning' },
     { key: 'settings', label: 'Paramètres', short: 'Réglages', icon: Gear, path: '/parametres' },
   ] as const;
 
@@ -152,6 +155,7 @@ export function App() {
         )}
         {route.screen === 'home' && <Dashboard user={me.user} assistant={me.assistant} onStart={startSession} />}
         {route.screen === 'devis' && <AssistDevis key={route.id ?? 'liste'} id={route.id} assistant={me.assistant} start={pendingStart} onStarted={() => setPendingStart(null)} />}
+        {route.screen === 'planning' && <Planning user={me.user} assistant={me.assistant} importOpen={!!route.import} onStart={startSession} />}
         {route.screen === 'settings' && (
           <Settings
             user={me.user}

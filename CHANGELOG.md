@@ -1,5 +1,13 @@
 # Journal des versions
 
+## 0.8.0 — 26/11/2026
+
+Planning, import de planning fournisseur, marge.
+- **Planning** (nouvel onglet) : la semaine lue dans Interfast, jour par jour, filtrable par intervenant ; semaine précédente / suivante. Planifier ou modifier passe par l’assistante, et toute écriture se valide comme un devis.
+- **Import d’un planning fournisseur en PDF** : vos consignes (au clavier ou dictées) → une proposition ligne à ligne (chantier, intervenant, doublons repérés, ce qui partira à Interfast) → « Valider l’import » pour les seules lignes cochées. Rien n’est écrit avant. Le PDF n’est pas gardé.
+- **Marge** : le graphique du CA montre la marge brute dans chaque colonne, et deux indicateurs s’ajoutent (marge du mois, taux de marge). Sans coûts dans Interfast, la marge reste « – » : jamais estimée.
+- Gmail : étude des façons de se connecter (`GMAIL.md`), pas encore de code.
+
 ## 0.7.1 — 12/11/2026
 
 - iPhone : plus rien sous la barre d’état (le logo et « Envo » y étaient floutés) ; zones sûres via `--safe-top` / `--safe-bottom` partout.

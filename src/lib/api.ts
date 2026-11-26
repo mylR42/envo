@@ -172,7 +172,8 @@ export interface QuoteRow {
 }
 export interface Overview {
   series: {
-    ca_mensuel: { mois: string; montant_ht: number | null }[];
+    /** `marge_ht` absent dans une copie d'avant la 0.8.0 (appareil). */
+    ca_mensuel: { mois: string; montant_ht: number | null; marge_ht?: number | null }[];
     devis_mensuels: { mois: string; en_attente: number | null; acceptes: number | null; refuses: number | null }[];
     pipeline: { statut: string; nombre: number | null; montant_ht: number | null }[];
     impayes_anciennete: { tranche: string; nombre: number | null; montant_ttc: number | null }[];
@@ -185,4 +186,75 @@ export interface Overview {
   manques: string[];
   sources: string[];
   resume: string;
+}
+
+/* ---------- Planning (server/planning.ts) et import PDF (server/planimport.ts) ---------- */
+
+export interface PlanEvent {
+  ref: string;
+  date: string;
+  debut: string;
+  fin: string;
+  type: 'intervention' | 'chantier' | 'rdv' | 'livraison' | 'autre';
+  objet: string;
+  client: string;
+  lieu: string;
+  intervenants: string[];
+  statut: string;
+}
+
+export interface PlanningData {
+  du: string;
+  au: string;
+  evenements: PlanEvent[];
+  intervenants: string[];
+  manques: string[];
+  sources: string[];
+  resume: string;
+}
+
+export interface PlanningState {
+  du: string;
+  au: string;
+  planning: PlanningData | null;
+  at: string | null;
+  stale: boolean;
+  job: { du: string; state: 'en_cours' | 'fini' | 'erreur'; status: string; calls: number; elapsedMs: number; error?: string } | null;
+  configured: boolean;
+  assistant: boolean;
+}
+
+export interface ImportLine {
+  date: string;
+  debut: string;
+  fin: string;
+  objet: string;
+  chantier: string;
+  intervenant: string;
+  remarque: string;
+  outil: string;
+  arguments: Record<string, unknown>;
+  doublon: boolean;
+  importable: boolean;
+}
+
+export interface ImportView {
+  id: string;
+  file_name: string;
+  consignes: string;
+  state: 'preparation' | 'proposee' | 'import_en_cours' | 'importee' | 'partielle' | 'echec' | 'abandonnee' | 'erreur';
+  status: string;
+  proposal: { fournisseur: string; resume: string; lignes: ImportLine[]; ignores: string[]; manques: string[] } | null;
+  results: { ligne: number; ok: boolean; message: string }[];
+  error: string;
+  created_at: string;
+  decided_at: string | null;
+}
+
+export interface ImportSummary {
+  id: string;
+  file_name: string;
+  state: ImportView['state'];
+  created_at: string;
+  lignes: number | null;
 }
