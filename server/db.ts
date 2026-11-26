@@ -224,6 +224,8 @@ export const SCHEMA = [
      accepted_at timestamptz
    )`,
   `CREATE INDEX IF NOT EXISTS invitations_company ON invitations(company_id, created_at DESC)`,
+  // Planning : jours affichés (5 = lun.–ven., 6 = lun.–sam., 7), goût PERSONNEL. 26/11/2026 : « n'affiche pas dimanche ».
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS planning_days integer NOT NULL DEFAULT 6`,
 ];
 
 export async function applySchema(db: Db): Promise<void> {

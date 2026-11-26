@@ -9,7 +9,7 @@ Guide pour Claude Code sur ce dépôt.
 devis avec l'artisan, à la voix ou au clavier, et le crée dans **Interfast**.
 
 Écrans : écran d'entrée (comptes), **Tableau de bord**, **AssistDevis**,
-**Planning** (0.8.0), **Paramètres** (dont **Équipe**, 0.9.0), et la page du
+**Planning** (0.8.0), **Import PDF** (menu à part depuis la 0.9.1), **Paramètres** (dont **Équipe**, 0.9.0), et la page du
 lien d'invitation (`#/rejoindre/…`). Version : `version` de `package.json`, affichée sur l'écran
 d'entrée et dans Paramètres.
 
@@ -109,9 +109,22 @@ qui publie) : `publier_planning`, une semaine (lundi → dimanche), en MÉMOIRE
 La recette (`settings.planning_recipe`) garde les dates sous forme de repères
 `{{debut}}` / `{{fin}}` (`templateArgs` / `fillArgs`) : rejouée pour une autre
 semaine, elle lit la bonne période. ⚠️ Planifier ou modifier passe par une
-séance de l'assistante (bouton → texte de départ) : validation comme un devis.
+séance de l'assistante (bouton → texte de départ, ou « Dicter un RDV » / Siri) :
+validation comme un devis. La méthode RDV (client introuvable → le dire et
+demander l'adresse, homonymes en `proposer_choix`, date redite en clair, durée,
+intervenant, conflits, récapitulatif) est dans `SYSTEM_PROMPT` ; le contexte
+donne le jour de la semaine.
+⚠️ Lisibilité (26/11/2026, « catastrophique ») : D'ABORD « À venir » + la
+semaine en chiffres (`lib/planning.ts` : `upcoming`, `conflicts`, `load`,
+`visibleDays`, testés), le résumé en carte `ui/Brief.tsx`, puis les jours en
+LIGNES — jamais 7 colonnes étroites. Jours affichés : `users.planning_days`
+(5/6/7, défaut 6), un jour masqué occupé reste visible.
 
-## Import d'un planning fournisseur (`server/planimport.ts`, `ImportPanel.tsx`)
+## Import d'un planning fournisseur (`server/planimport.ts`, `Import.tsx`, `ImportPanel.tsx`)
+
+⚠️ Écran et entrée de menu À PART (`#/import`), jamais dans le Planning
+(demande du 26/11/2026 : « tu mélanges deux fonctionnalités »). Une fonction =
+une entrée de menu.
 
 PDF (8 Mo, `%PDF-` vérifié, JAMAIS gardé) + consignes → bloc `document` à
 Claude (modèle principal, effort `medium`) → `proposer_import`. ⚠️ Les outils
@@ -195,6 +208,22 @@ Demande du propriétaire : « mets en mémoire pour ne jamais reproduire ça ».
    simule l'encoche, hachure la barre d'état et ÉCHOUE si un texte passe
    dessous ou si l'entrée est décentrée. Chromium n'a pas d'encoche : sans cette
    simulation, ces défauts ne se voient pas en capture.
+
+## Onglets d'un écran (`ui/Tabs.tsx`, 26/11/2026)
+
+Un écran découpé en parties (Paramètres) a une barre d'ONGLETS : un clic
+n'affiche QUE la partie choisie, l'onglet actif est en surbrillance (bleu).
+Chaque onglet est un lien `#/ecran/partie` (retour arrière, liens directs comme
+`#/parametres/interfast`) ; `activeTab()` retombe sur le premier. ⚠️ À
+réutiliser tel quel pour tout autre écran à parties — pas de longue page qui
+défile avec des ancres.
+
+## Téléphone : peu de texte (26/11/2026)
+
+« Du texte qui prend beaucoup de place : mets plus de cartes, on clique dessus
+ou on les écoute. » La phrase d'un `PageHead` est repliée derrière ⓘ sous
+640 px ; un texte long de l'assistante passe par `ui/Brief.tsx` (replié, « Lire
+la suite », « Écouter »). Ne pas remettre de paragraphe ouvert d'office.
 
 ## En-tête
 

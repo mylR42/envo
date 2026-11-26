@@ -225,6 +225,8 @@ export interface PlanningState {
   job: { du: string; state: 'en_cours' | 'fini' | 'erreur'; status: string; calls: number; elapsedMs: number; error?: string } | null;
   configured: boolean;
   assistant: boolean;
+  /** Jours affichés (5, 6, 7), goût personnel. */
+  days?: number;
 }
 
 export interface ImportLine {

@@ -1,5 +1,18 @@
 # Journal des versions
 
+## 0.10.0 — 26/11/2026
+
+Planning lisible, rendez-vous à la voix, téléphone allégé.
+- **Planning** : en haut, **À venir** (les prochains RDV, « Aujourd’hui », « Demain ») et la semaine en chiffres (nombre de RDV, **conflits** d’une même personne, charge de chacun, jours libres) ; le point de la semaine en carte repliée, avec « Écouter ». Les jours en lignes, heure à gauche, sur deux colonnes larges à l’ordinateur (fini les 7 colonnes étroites).
+- **Jours affichés réglables** (lun.–ven., lun.–sam., 7 jours ; dimanche masqué par défaut), réglage personnel gardé sur le serveur. Un jour masqué qui a un RDV reste affiché.
+- **Prendre un RDV à la voix** (« Dicter un RDV », ou « Dis Siri, Envo ») : l’assistante va jusqu’au bout et contrôle chaque point — client introuvable (« je ne retrouve pas ce client, voulez-vous me donner l’adresse ? »), homonymes, adresse, date dite en clair, durée, intervenant, conflits — puis récapitule ; rien n’est écrit sans « je valide ».
+- **Téléphone** : la phrase d’explication de chaque écran est repliée derrière un bouton ⓘ ; les textes longs de l’assistante sont des cartes à ouvrir ou à écouter.
+
+## 0.9.1 — 26/11/2026
+
+- **Paramètres en onglets** : un clic sur Entreprise, Interfast, Équipe, Mémoire, Siri ou Sécurité n’affiche QUE cette partie ; l’onglet choisi est en surbrillance ; le retour arrière revient à l’onglet précédent.
+- **Import PDF** devient une entrée de menu à part : le Planning ne montre plus que le planning.
+
 ## 0.9.0 — 26/11/2026
 
 Plusieurs utilisateurs par entreprise.

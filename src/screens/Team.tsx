@@ -35,7 +35,7 @@ interface TeamData {
 
 const ROLE_LABEL = { admin: 'Administrateur', membre: 'Membre' } as const;
 
-export function Team({ user, open, onLeft }: { user: User; open: boolean; onLeft(): void }) {
+export function Team({ user, onLeft }: { user: User; onLeft(): void }) {
   const [t, setT] = useState<TeamData | null>(null);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'admin' | 'membre'>('membre');
@@ -48,9 +48,6 @@ export function Team({ user, open, onLeft }: { user: User; open: boolean; onLeft
   useEffect(() => {
     void load();
   }, [load]);
-  useEffect(() => {
-    if (open) document.getElementById('s-equipe')?.scrollIntoView({ block: 'start' });
-  }, [open]);
 
   const act = async (fn: () => Promise<unknown>, ok?: string) => {
     setBusy(true);

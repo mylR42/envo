@@ -450,6 +450,15 @@ code {
   font-size: 0.9rem;
   text-decoration: none;
 }
+.jump a.is-on {
+  background: var(--blue);
+  color: #fff;
+  box-shadow: 0 2px 8px rgb(37 99 235 / 30%);
+}
+.jump a:focus-visible {
+  outline: 3px solid var(--amber);
+  outline-offset: 2px;
+}
 .page__head--row {
   display: flex;
   flex-wrap: wrap;
@@ -593,7 +602,7 @@ code {
   backdrop-filter: blur(10px);
   border-top: 1px solid var(--line);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   z-index: 20;
 }
 .tabbar a {
@@ -2444,15 +2453,9 @@ code {
   .kpis {
     grid-template-columns: repeat(4, 1fr);
   }
-  .page--settings {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    align-items: start;
-  }
-  .page--settings > .page__head,
-  .page--settings > .jump,
-  .page--settings > #s-memoire {
-    grid-column: 1 / -1;
+  /* Une partie à la fois (onglets) : une colonne, d'une largeur qui se lit. */
+  .page--settings > .section {
+    max-width: 920px;
   }
   .chat {
     height: 100dvh;
@@ -2545,13 +2548,133 @@ code {
   font-size: 1rem;
   min-width: 0;
 }
-.weekbar__when {
+.weekbar__tools {
   margin-left: auto;
-  font-size: 0.85rem;
-  color: var(--muted);
   display: inline-flex;
   align-items: center;
+  gap: 0.25rem;
+  color: var(--muted);
+}
+.plan-prefs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem;
+}
+.plan-prefs > span:first-child {
+  font-weight: 700;
+}
+.plan-prefs .muted {
+  font-size: 0.85rem;
+}
+/* À venir : l'essentiel de la semaine, en haut. */
+.upnext h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+.upnext ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
   gap: 0.35rem;
+}
+.upnext__item {
+  display: grid;
+  grid-template-columns: 6.6rem minmax(0, 1fr);
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  cursor: pointer;
+}
+.upnext__when {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.upnext__when strong {
+  color: var(--navy);
+  font-size: 0.95rem;
+}
+.upnext__what {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.upnext__what strong {
+  display: flex;
+  gap: 0.35rem;
+  align-items: flex-start;
+  line-height: 1.25;
+}
+.upnext__what strong svg {
+  flex: none;
+  margin-top: 0.15rem;
+}
+.upnext__what .muted {
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weekstats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.7rem;
+}
+.wchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: 0;
+}
+.wchip--warn {
+  background: var(--red-soft);
+  color: var(--red);
+  cursor: pointer;
+}
+.wchip--free {
+  background: var(--green-soft);
+  color: var(--green);
+}
+.day--past {
+  opacity: 0.7;
+}
+.day {
+  scroll-margin-top: calc(var(--apphead) + 0.5rem);
+}
+/* Ordinateur : les jours en deux colonnes larges (une ligne par RDV, jamais 7 colonnes étroites). */
+@media (min-width: 1024px) {
+  .week {
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    align-items: start;
+  }
+  .page--planning > .upnext,
+  .page--planning > .brief {
+    max-width: none;
+  }
+  .evt__pin {
+    display: inline;
+  }
 }
 .chips {
   display: flex;
@@ -2608,9 +2731,12 @@ code {
 .day__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.4rem;
   margin: 0 0 0.5rem;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+}
+.day__head > span:first-child {
+  flex: 1;
 }
 .day__empty {
   display: inline-flex;
@@ -2638,49 +2764,64 @@ code {
 }
 .evt {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 0.12rem;
-  padding: 0.5rem 2.4rem 0.5rem 0.65rem;
+  display: grid;
+  grid-template-columns: 3.4rem minmax(0, 1fr) 32px;
+  gap: 0.6rem;
+  align-items: start;
+  padding: 0.55rem 0.4rem 0.55rem 0.6rem;
   border-radius: 10px;
   background: var(--bg);
   border-left: 4px solid var(--series-1);
-  min-width: 0;
 }
 .evt--chantier { border-left-color: var(--series-3); }
 .evt--rdv { border-left-color: var(--series-5); }
 .evt--livraison { border-left-color: var(--series-4); }
 .evt--autre { border-left-color: var(--series-0); }
-.evt__time,
-.evt__meta {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  font-size: 0.8rem;
+.evt--clash {
+  background: var(--red-soft);
+}
+.evt__time {
+  display: flex;
+  flex-direction: column;
+  font-weight: 800;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.evt__time small {
+  font-weight: 600;
   color: var(--muted);
+  font-size: 0.8rem;
+}
+.evt__main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
 }
 .evt__title {
-  display: inline-flex;
+  display: flex;
   align-items: flex-start;
   gap: 0.35rem;
   font-weight: 700;
   line-height: 1.25;
-  overflow-wrap: anywhere;
 }
 .evt__title svg {
   flex: none;
-  margin-top: 0.1rem;
+  margin-top: 0.15rem;
 }
-.evt__sub {
-  font-size: 0.85rem;
-  color: var(--ink-2);
-  overflow-wrap: anywhere;
+.evt__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.evt__pin {
+  display: none;
 }
 .evt__edit {
-  position: absolute;
-  top: 0.35rem;
-  right: 0.35rem;
   width: 32px;
   height: 32px;
   display: grid;
@@ -2695,28 +2836,11 @@ code {
   color: var(--muted);
   cursor: default;
 }
-.import-cta {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  border: 1px dashed var(--blue);
-  cursor: pointer;
-}
-.import-cta > span {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-.import-cta > svg:first-child {
-  color: var(--blue);
-  flex: none;
-}
 
 /* ---------- Import d'un planning fournisseur ---------- */
+.page--import .importer {
+  max-width: 920px;
+}
 .importer {
   display: flex;
   flex-direction: column;
@@ -2950,20 +3074,6 @@ code {
   }
 }
 
-/* Ordinateur : la semaine en sept colonnes. */
-@media (min-width: 1024px) {
-  .week {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-    align-items: start;
-  }
-  .day {
-    min-height: 160px;
-  }
-  .evt {
-    padding-right: 0.65rem;
-    padding-top: 2.1rem;
-  }
-}
 
 /* ================== Équipe (0.9.0) ================== */
 .team {
@@ -3066,4 +3176,46 @@ code {
 }
 .team__invite .field {
   margin-bottom: 0;
+}
+
+/* ---------- En-tête d'écran sur téléphone : explication repliée (26/11/2026) ---------- */
+.page__titletext {
+  min-width: 0;
+}
+.page__info {
+  display: none;
+  vertical-align: middle;
+  margin-left: 0.35rem;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--blue);
+  cursor: pointer;
+  place-items: center;
+}
+@media (max-width: 639px) {
+  .page__info {
+    display: inline-grid;
+  }
+  .page__desc {
+    display: none;
+  }
+  .page__desc.is-open {
+    display: block;
+  }
+}
+
+@media (max-width: 479px) {
+  .weekbar__pre {
+    display: none;
+  }
+  .weekbar {
+    flex-wrap: nowrap;
+  }
+  .weekbar__label {
+    white-space: nowrap;
+    font-size: 0.95rem;
+  }
 }

@@ -624,8 +624,9 @@ export function createApp(deps: Deps) {
     return { ...r, hourly_rate: toNum(r.hourly_rate), vat_rate: toNum(r.vat_rate), margin_pct: toNum(r.margin_pct), travel_fee: toNum(r.travel_fee), validity_days: toNum(r.validity_days) };
   }
 
-  const voiceReplyOf = async (u: User) => (await db.query<{ v: boolean | null }>('SELECT voice_reply AS v FROM users WHERE id = $1', [u.id]))[0]?.v ?? false;
-  const publicSettings = (s: SettingsRow, voice_reply: boolean) => ({
+  /** Goûts PERSONNELS (pas ceux de l'entreprise) : lecture à voix haute, jours du planning. */
+  const voiceReplyOf = async (u: User) => (await db.query<{ v: boolean | null; d: number }>('SELECT voice_reply AS v, planning_days AS d FROM users WHERE id = $1', [u.id]))[0] ?? { v: false, d: 6 };
+  const publicSettings = (s: SettingsRow, me: { v: boolean | null; d: number }) => ({
     company: s.company,
     trade: s.trade,
     hourly_rate: s.hourly_rate,
@@ -634,7 +635,8 @@ export function createApp(deps: Deps) {
     travel_fee: s.travel_fee,
     validity_days: s.validity_days,
     notes: s.notes,
-    voice_reply,
+    voice_reply: me.v ?? false,
+    planning_days: me.d,
     mcp: { url: s.mcp_url, keyHint: s.mcp_key_hint, configured: !!s.mcp_url },
   });
 
@@ -672,6 +674,7 @@ export function createApp(deps: Deps) {
     const name = typeof b.name === 'string' ? str(b.name, 80) : u.name;
     await db.query('UPDATE users SET name = $2 WHERE id = $1', [u.id, name]);
     if (typeof b.voice_reply === 'boolean') await db.query('UPDATE users SET voice_reply = $2 WHERE id = $1', [u.id, b.voice_reply]);
+    if ([5, 6, 7].includes(b.planning_days as number)) await db.query('UPDATE users SET planning_days = $2 WHERE id = $1', [u.id, b.planning_days]);
     const cur = await loadSettings(u);
     if (u.role === 'admin' && COMPANY_KEYS.some((k) => k in b)) {
       let mcpUrl = cur.mcp_url;
@@ -1313,6 +1316,7 @@ export function createApp(deps: Deps) {
       job: j && j.du === du ? planJobView(j) : null,
       configured: !!s.mcp_url,
       assistant: llm !== null,
+      days: (await voiceReplyOf(u)).d,
     });
   });
 

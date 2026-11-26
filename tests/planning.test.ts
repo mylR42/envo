@@ -22,3 +22,26 @@ describe('marge sur le CA', () => {
     expect(periodRate([{ mois: 'a', montant_ht: 1000 }])).toBeNull();
   });
 });
+
+import { conflicts, load, upcoming, visibleDays, whenLabel } from '../src/lib/planning';
+
+const ev = (date: string, debut: string, fin: string, qui: string[], objet = 'x') => ({ date, debut, fin, objet, client: '', intervenants: qui });
+
+describe('lire la semaine', () => {
+  it('jours affichés : sans dimanche par défaut, mais un dimanche occupé reste visible', () => {
+    expect(visibleDays('2026-11-23', 6, [])).toHaveLength(6);
+    expect(visibleDays('2026-11-23', 5, []).at(-1)).toBe('2026-11-27');
+    expect(visibleDays('2026-11-23', 5, [ev('2026-11-29', '', '', [])])).toEqual(['2026-11-23', '2026-11-24', '2026-11-25', '2026-11-26', '2026-11-27', '2026-11-29']);
+  });
+  it('conflit : même personne, heures qui se chevauchent', () => {
+    const c = conflicts([ev('2026-11-25', '08:00', '17:00', ['Benjamin']), ev('2026-11-25', '11:30', '12:30', ['Benjamin']), ev('2026-11-25', '11:00', '12:00', ['Paul']), ev('2026-11-25', '', '', ['Benjamin'])]);
+    expect(c).toHaveLength(1);
+    expect(c[0]!.qui).toBe('Benjamin');
+  });
+  it('à venir : à partir de maintenant, dans l’ordre', () => {
+    const list = [ev('2026-11-27', '09:00', '', []), ev('2026-11-26', '08:00', '09:00', [], 'passé'), ev('2026-11-26', '14:00', '15:00', [], 'cet après-midi')];
+    expect(upcoming(list, '2026-11-26', '11:00').map((e) => e.objet)).toEqual(['cet après-midi', 'x']);
+    expect(whenLabel('2026-11-27', '2026-11-26')).toBe('Demain');
+    expect(load([ev('d', '', '', ['B']), ev('d', '', '', ['B', 'P']), ev('d', '', '', [])])).toEqual([{ qui: 'B', n: 2 }, { qui: 'Non affecté', n: 1 }, { qui: 'P', n: 1 }]);
+  });
+});

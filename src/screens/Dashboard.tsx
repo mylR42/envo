@@ -21,9 +21,7 @@ import {
   ArrowRight,
   Brain,
   CalendarBlank,
-  CaretDown,
   CaretRight,
-  CaretUp,
   ChartBar,
   ChartPieSlice,
   ChatCircleDots,
@@ -43,10 +41,7 @@ import {
   PlugsConnected,
   Plus,
   Receipt,
-  Sparkle,
-  SpeakerHigh,
   Star,
-  Stop,
   Table,
   TrendUp,
   Warning,
@@ -55,9 +50,10 @@ import {
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, type ConvSummary, type InterfastStatus, type Kpi, type Overview, type ReadJob, type User } from '../lib/api';
 import { euros, relDate, STATUS_LABEL, toolLabel } from '../lib/format';
-import { canListen, canSpeak, speak, stopSpeaking } from '../lib/voice';
+import { canListen } from '../lib/voice';
 import { BarList, ChartCard, ColumnChart, DataTable, fullEuros, SegmentBar, type Row } from '../ui/Charts';
 import { PageHead } from '../ui/PageHead';
+import { Brief } from '../ui/Brief';
 import { useOffline } from '../lib/offline';
 import { groupPipeline, statusFamily } from '../lib/status';
 import { pct, periodRate, splitMargin } from '../lib/margin';
@@ -131,71 +127,6 @@ const sum = (xs: (number | null)[]) => xs.reduce<number>((a, b) => a + (b ?? 0),
 /** Couleur d'un statut de devis : FIXE par statut (jamais par rang), 4 au plus. */
 /** Couleur d'un statut : par FAMILLE (lib/status.ts), jamais par rang, jamais partagée. */
 const statusSlot = (s: string) => statusFamily(s).slot;
-
-/**
- * Le point du jour, écrit par l'assistante : replié sur deux lignes (il peut
- * en faire sept sur un téléphone et repoussait l'essentiel hors de l'écran,
- * signalé le 09/11/2026), « Lire la suite » et « Écouter ».
- */
-function DailyBrief({ text, at }: { text: string; at: string | null }) {
-  const [open, setOpen] = useState(false);
-  const [talking, setTalking] = useState(false);
-  useEffect(() => () => stopSpeaking(), []);
-  const long = text.length > 140;
-  return (
-    <section className={`brief card${open ? ' is-open' : ''}`} aria-label="Le point du jour">
-      <span className="brief__icon" aria-hidden="true">
-        <Sparkle size={20} />
-      </span>
-      <div className="brief__body">
-        <span className="brief__label">
-          Le point du jour{at && <> · {new Date(at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</>}
-        </span>
-        <p className="brief__text">{text}</p>
-        <div className="brief__actions">
-          {long && (
-            <button className="link-btn" onClick={() => setOpen(!open)} aria-expanded={open}>
-              {open ? (
-                <>
-                  <CaretUp size={14} /> Réduire
-                </>
-              ) : (
-                <>
-                  <CaretDown size={14} /> Lire la suite
-                </>
-              )}
-            </button>
-          )}
-          {canSpeak() && (
-            <button
-              className="link-btn"
-              aria-pressed={talking}
-              onClick={() => {
-                if (talking) {
-                  stopSpeaking();
-                  setTalking(false);
-                } else {
-                  setTalking(true);
-                  speak(text, () => setTalking(false));
-                }
-              }}
-            >
-              {talking ? (
-                <>
-                  <Stop size={14} weight="bold" /> Arrêter
-                </>
-              ) : (
-                <>
-                  <SpeakerHigh size={14} /> Écouter
-                </>
-              )}
-            </button>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
 
 const secs = (ms: number) => `${Math.max(0, Math.round(ms / 1000))} s`;
 
@@ -467,7 +398,7 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
         Que prépare-t-on aujourd’hui ?
       </PageHead>
 
-      {o?.resume && <DailyBrief text={o.resume} at={ov?.at ?? null} />}
+      {o?.resume && <Brief label="Le point du jour" text={o.resume} at={ov?.at ?? null} />}
 
       {error && <p className="alert alert--error">{error}</p>}
       {d && !d.assistant && <p className="alert alert--warn">L’assistante n’est pas activée sur le serveur (clé Anthropic absente).</p>}
