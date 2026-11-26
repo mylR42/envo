@@ -1,12 +1,12 @@
 /**
  * L'application : écran d'entrée sans session, sinon quatre écrans — Tableau de
- * bord, AssistDevis, Planning, Import PDF, Paramètres. Navigation par le fragment d'URL (#/devis/…),
+ * bord, AssistDevis, Planning, E-mails, Import PDF, Paramètres. Navigation par le fragment d'URL (#/devis/…),
  * pour que le retour arrière du téléphone fonctionne sans routeur.
  *
  * Téléphone : barre d'onglets en bas (geste du pouce). Ordinateur (≥ 1024 px) :
  * barre latérale. Les deux sont TOUJOURS rendues, la feuille de style choisit.
  */
-import { CalendarBlank, ChatCircleDots, FileArrowUp, Gear, House, SignOut, WifiSlash } from '@phosphor-icons/react';
+import { CalendarBlank, ChatCircleDots, EnvelopeSimple, FileArrowUp, Gear, House, SignOut, WifiSlash } from '@phosphor-icons/react';
 import { useCallback, useEffect, useState } from 'react';
 import { api, type User } from './lib/api';
 import { AuthScreen } from './screens/AuthScreen';
@@ -15,11 +15,12 @@ import { AssistDevis } from './screens/AssistDevis';
 import { Settings } from './screens/Settings';
 import { Planning } from './screens/Planning';
 import { Import } from './screens/Import';
+import { Emails } from './screens/Emails';
 import { JoinScreen, JOIN_KEY } from './screens/JoinScreen';
 import { Brand, Logo } from './ui/Brand';
 import { clearOfflineData, rememberAccount, sinceLabel, useOffline } from './lib/offline';
 
-export type Route = { screen: 'home' } | { screen: 'devis'; id?: string; start?: string; voice?: boolean } | { screen: 'planning' } | { screen: 'import' } | { screen: 'join'; token: string } | { screen: 'settings'; section?: string };
+export type Route = { screen: 'home' } | { screen: 'devis'; id?: string; start?: string; voice?: boolean } | { screen: 'planning' } | { screen: 'emails' } | { screen: 'import' } | { screen: 'join'; token: string } | { screen: 'settings'; section?: string };
 
 export function parseRoute(hash: string): Route {
   const h = hash.replace(/^#\/?/, '');
@@ -30,6 +31,7 @@ export function parseRoute(hash: string): Route {
   // #/planning/import : ancienne adresse de l'import (0.8.0), désormais son propre écran.
   if (a === 'import' || (a === 'planning' && b === 'import')) return { screen: 'import' };
   if (a === 'planning') return { screen: 'planning' };
+  if (a === 'emails') return { screen: 'emails' };
   if (a === 'parametres') return { screen: 'settings', section: b };
   return { screen: 'home' };
 }
@@ -116,6 +118,7 @@ export function App() {
     { key: 'home', label: 'Tableau de bord', short: 'Accueil', icon: House, path: '/' },
     { key: 'devis', label: 'AssistDevis', short: 'Devis', icon: ChatCircleDots, path: '/devis' },
     { key: 'planning', label: 'Planning', short: 'Planning', icon: CalendarBlank, path: '/planning' },
+    { key: 'emails', label: 'E-mails', short: 'E-mails', icon: EnvelopeSimple, path: '/emails' },
     { key: 'import', label: 'Import PDF', short: 'Import', icon: FileArrowUp, path: '/import' },
     { key: 'settings', label: 'Paramètres', short: 'Réglages', icon: Gear, path: '/parametres' },
   ] as const;
@@ -179,6 +182,7 @@ export function App() {
         {route.screen === 'home' && <Dashboard user={me.user} assistant={me.assistant} onStart={startSession} />}
         {route.screen === 'devis' && <AssistDevis key={route.id ?? 'liste'} id={route.id} assistant={me.assistant} start={pendingStart} onStarted={() => setPendingStart(null)} />}
         {route.screen === 'planning' && <Planning user={me.user} assistant={me.assistant} onStart={startSession} />}
+        {route.screen === 'emails' && <Emails assistant={me.assistant} onStart={startSession} />}
         {route.screen === 'import' && <Import assistant={me.assistant} />}
         {route.screen === 'settings' && (
           <Settings

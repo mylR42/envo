@@ -393,9 +393,9 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
               </button>
             )}
             {d?.mail && (
-              <button className="btn btn--outline" onClick={() => onStart({ text: 'Résume-moi mes e-mails non lus : qui, quoi, ce qu’on attend de moi.' })} disabled={!live}>
+              <a className="btn btn--outline" href="#/emails">
                 <EnvelopeSimple size={20} /> Mes e-mails
-              </button>
+              </a>
             )}
             <button className="btn btn--primary" onClick={() => onStart()} disabled={!live}>
               <Plus size={20} /> Nouveau devis

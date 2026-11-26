@@ -85,4 +85,27 @@ describe('Gmail', () => {
     expect(env.gmail.sent).toEqual([{ a: 'leroy@example.fr', objet: 'Re: Devis', texte: 'Jeudi 14 h, c’est noté.', en_reponse_a: '41' }]);
     expect(t4.json.items.filter((i: { type: string }) => i.type === 'confirm').map((i: { state: string }) => i.state)).toEqual(['refusee', 'validee']);
   });
+
+  it('écran E-mails : liste, lecture, et tri par l’IA gardé en mémoire (aucun outil d’écriture)', async () => {
+    const env = await setup({
+      script: [[{ type: 'tool_use', id: 't1', name: 'publier_tri', input: { point: 'Mme Leroy attend une réponse.', items: [{ id: '41', categorie: 'a_repondre', resume: 'Passage jeudi ?', action: 'Répondre' }, { id: '7', categorie: 'urgent', resume: 'inventé', action: '' }] } }]],
+    });
+    const c = await signedIn(env);
+    expect((await c.call('GET', '/api/mail/messages')).status).toBe(400);
+    await c.call('PUT', '/api/mail', { email: 'paul@gmail.com', password: PASS });
+    expect((await c.call('GET', '/api/mail/messages?non_lus=1')).json.messages.map((m: { id: string }) => m.id)).toEqual(['41']);
+    expect((await c.call('GET', '/api/mail/messages/41')).json.message.objet).toBe('Devis pompe à chaleur');
+    expect((await c.call('GET', '/api/mail/messages/999')).status).toBe(502);
+
+    const a = await c.call('POST', '/api/mail/analyse');
+    expect(a.json.analyse.items).toEqual([{ id: '41', categorie: 'a_repondre', resume: 'Passage jeudi ?', action: 'Répondre' }]);
+    // Le modèle n'a reçu QUE l'outil de publication, et les e-mails balisés comme non fiables.
+    const req = env.scripted.requests[0]!;
+    expect(req.tools!.map((t) => (t as { name: string }).name)).toEqual(['publier_tri']);
+    expect(JSON.stringify(req.messages)).toContain('emails_non_fiables');
+    // Gardé en mémoire : relu sans nouvel appel ; rien en base.
+    expect((await c.call('GET', '/api/mail/analyse')).json.analyse.point).toBe('Mme Leroy attend une réponse.');
+    expect(env.scripted.calls).toBe(1);
+    expect(JSON.stringify(await env.db.query('SELECT * FROM mail_accounts'))).not.toContain('Leroy');
+  });
 });
