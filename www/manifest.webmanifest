@@ -1,0 +1,32 @@
+{
+  "name": "Envo — votre assistant personnel",
+  "short_name": "Envo",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#1e3a8a",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Parler à Envo",
+      "short_name": "Parler",
+      "description": "Ouvre une conversation à la voix, en mains libres",
+      "url": "/#/devis/voix",
+      "icons": [
+        {
+          "src": "/icon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ]
+}
