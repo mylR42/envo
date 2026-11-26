@@ -1,5 +1,9 @@
 # Journal des versions
 
+## 0.12.1 — 26/11/2026
+
+- Plus d’erreurs « Loading the font … violates … font-src 'self' » dans la console : six petits fichiers de la police Manrope étaient insérés dans la CSS (adresses `data:`), que la politique de sécurité du site refuse. Les polices sont désormais toujours servies comme des fichiers, et la vérification automatique échoue si cela revient.
+
 ## 0.12.0 — 26/11/2026
 
 Écran **E-mails** dans le menu.
