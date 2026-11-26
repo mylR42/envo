@@ -97,7 +97,7 @@ describe('planning Interfast (API)', () => {
 
 describe('import d’un planning fournisseur', () => {
   const tools: McpTool[] = [
-    { name: 'list_quotes', annotations: { readOnlyHint: true } },
+    { name: 'list_quotes', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } },
     { name: 'create_quote', inputSchema: { type: 'object', properties: { customer_id: { type: 'string' } } } },
   ];
 
