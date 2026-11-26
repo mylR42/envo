@@ -109,7 +109,16 @@ qui publie) : `publier_planning`, une semaine (lundi → dimanche), en MÉMOIRE
 La recette (`settings.planning_recipe`) garde les dates sous forme de repères
 `{{debut}}` / `{{fin}}` (`templateArgs` / `fillArgs`) : rejouée pour une autre
 semaine, elle lit la bonne période. ⚠️ Planifier ou modifier passe par une
-séance de l'assistante (bouton → texte de départ) : validation comme un devis.
+séance de l'assistante (bouton → texte de départ, ou « Dicter un RDV » / Siri) :
+validation comme un devis. La méthode RDV (client introuvable → le dire et
+demander l'adresse, homonymes en `proposer_choix`, date redite en clair, durée,
+intervenant, conflits, récapitulatif) est dans `SYSTEM_PROMPT` ; le contexte
+donne le jour de la semaine.
+⚠️ Lisibilité (26/11/2026, « catastrophique ») : D'ABORD « À venir » + la
+semaine en chiffres (`lib/planning.ts` : `upcoming`, `conflicts`, `load`,
+`visibleDays`, testés), le résumé en carte `ui/Brief.tsx`, puis les jours en
+LIGNES — jamais 7 colonnes étroites. Jours affichés : `users.planning_days`
+(5/6/7, défaut 6), un jour masqué occupé reste visible.
 
 ## Import d'un planning fournisseur (`server/planimport.ts`, `Import.tsx`, `ImportPanel.tsx`)
 
@@ -208,6 +217,13 @@ Chaque onglet est un lien `#/ecran/partie` (retour arrière, liens directs comme
 `#/parametres/interfast`) ; `activeTab()` retombe sur le premier. ⚠️ À
 réutiliser tel quel pour tout autre écran à parties — pas de longue page qui
 défile avec des ancres.
+
+## Téléphone : peu de texte (26/11/2026)
+
+« Du texte qui prend beaucoup de place : mets plus de cartes, on clique dessus
+ou on les écoute. » La phrase d'un `PageHead` est repliée derrière ⓘ sous
+640 px ; un texte long de l'assistante passe par `ui/Brief.tsx` (replié, « Lire
+la suite », « Écouter »). Ne pas remettre de paragraphe ouvert d'office.
 
 ## En-tête
 
