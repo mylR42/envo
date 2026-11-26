@@ -26,7 +26,7 @@ import { loadConfig } from '../server/config';
 import { applySchema } from '../server/db';
 import { mcpClient } from '../server/mcp';
 import type { Llm } from '../server/agent';
-import { fakeInterfast, MCP_URL, pgliteDb } from '../tests/server/helpers';
+import { fakeGmail, fakeInterfast, MCP_URL, pgliteDb } from '../tests/server/helpers';
 
 const PORT = Number(process.env.PORT ?? 4173);
 const ORIGIN = `http://localhost:${PORT}`;
@@ -274,6 +274,8 @@ const api = createApp({
   },
   llm,
   mcpFactory: (url, key) => mcpClient({ url, apiKey: key, fetchFn: interfast.fetchFn }),
+  // Faux Gmail : mot de passe d'application de démonstration « abcd efgh ijkl mnop ».
+  mailFactory: fakeGmail().factory,
 });
 
 /** Appel interne à l'API, avec la bonne origine (l'anti-CSRF reste actif). */

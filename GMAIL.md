@@ -1,8 +1,21 @@
-# Gmail dans Envo — étude (26/11/2026)
+# Gmail dans Envo
+
+> **Fait en 0.11.0 (26/11/2026) : la voie 1, IMAP + SMTP avec un mot de passe
+> d'application.** Code : `server/gmail.ts` (client, fonctions pures testées),
+> outils `mail_chercher`, `mail_lire`, `mail_brouillon`, `mail_envoyer` dans
+> `server/agent.ts` (l'envoi attend « Valider »), routes `/api/mail` dans
+> `server/app.ts`, écran `src/screens/MailSettings.tsx` (Paramètres → Gmail).
+> ⚠️ Non essayé sur un vrai compte depuis l'environnement de développement
+> (Gmail injoignable) : à vérifier au premier branchement. Le VPS doit pouvoir
+> sortir vers `imap.gmail.com:993` et `smtp.gmail.com:465`.
+>
+> Ce qui suit est l'étude d'origine.
+
+## Étude (26/11/2026)
 
 Demande : « voir comment je peux me connecter à une adresse Gmail afin de tout
 gérer depuis Envo et la voix ». Ce document compare les façons de faire et
-recommande un ordre. **Rien n'est encore codé.**
+recommande un ordre.
 
 ## Ce qu'on veut pouvoir faire
 

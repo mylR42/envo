@@ -669,22 +669,24 @@ function Value({ v }: { v: unknown }) {
 
 function Confirm({ item, busy, onAnswer }: { item: Extract<ViewItem, { type: 'confirm' }>; busy: boolean; onAnswer(a: Answer): void }) {
   const waiting = item.state === 'attente';
-  const entries = Object.entries(item.input);
+  // Un e-mail (Gmail) se relit comme un e-mail : destinataire, objet, message avec ses retours à la ligne.
+  const mail = item.tool === 'mail_envoyer';
+  const entries = Object.entries(item.input).filter(([k, v]) => !(mail && k === 'en_reponse_a') && !(mail && v === ''));
   return (
     <div className={`card confirm confirm--${item.state}`}>
       <div className="confirm__head">
         {item.state === 'validee' ? <CheckCircle size={20} /> : item.state === 'refusee' ? <XCircle size={20} /> : item.state === 'echec' ? <Warning size={20} /> : <Warning size={20} />}
         <strong>
-          {waiting ? 'À valider — ' : item.state === 'validee' ? 'Fait dans Interfast — ' : item.state === 'refusee' ? 'Refusé — ' : 'Échec dans Interfast — '}
+          {waiting ? 'À valider — ' : item.state === 'validee' ? (mail ? 'Envoyé — ' : 'Fait dans Interfast — ') : item.state === 'refusee' ? 'Refusé — ' : mail ? 'Échec de l’envoi — ' : 'Échec dans Interfast — '}
           {toolLabel(item.tool)}
         </strong>
       </div>
-      {waiting && <p className="muted">Cette action modifie Interfast. Vérifiez ce qui va être envoyé :</p>}
+      {waiting && <p className="muted">{mail ? 'Cet e-mail partira de votre Gmail. Relisez-le :' : 'Cette action modifie Interfast. Vérifiez ce qui va être envoyé :'}</p>}
       <dl className="confirm__fields">
         {entries.map(([k, v]) => (
           <div key={k}>
             <dt>{fieldLabel(k)}</dt>
-            <dd><Value v={v} /></dd>
+            <dd className={mail && k === 'texte' ? 'confirm__mailtext' : undefined}><Value v={v} /></dd>
           </div>
         ))}
       </dl>

@@ -29,6 +29,7 @@ import {
   ClipboardText,
   ClockCounterClockwise,
   Coins,
+  EnvelopeSimple,
   FileText,
   HandWaving,
   Hourglass,
@@ -67,6 +68,8 @@ interface Dash {
   interfast: { configured: boolean };
   assistant: boolean;
   profile_complete: boolean;
+  /** Gmail branché (Paramètres → Gmail). */
+  mail?: boolean;
   recent: ConvSummary[];
 }
 type OvState = { overview: Overview | null; at: string | null; stale?: boolean; collecting?: boolean };
@@ -387,6 +390,11 @@ export function Dashboard({ user, assistant, onStart }: { user: User; assistant:
             {canListen() && (
               <button className="btn btn--accent" onClick={() => onStart({ voice: true })} disabled={!live}>
                 <Microphone size={20} /> Dicter un devis
+              </button>
+            )}
+            {d?.mail && (
+              <button className="btn btn--outline" onClick={() => onStart({ text: 'Résume-moi mes e-mails non lus : qui, quoi, ce qu’on attend de moi.' })} disabled={!live}>
+                <EnvelopeSimple size={20} /> Mes e-mails
               </button>
             )}
             <button className="btn btn--primary" onClick={() => onStart()} disabled={!live}>

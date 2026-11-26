@@ -18,12 +18,12 @@
  *
  * Changer ce fichier = monter VERSION : l'ancienne copie de l'appli est jetée.
  */
-const VERSION = 'v3';
+const VERSION = 'v4';
 const SHELL = `envo-appli-${VERSION}`;
 const DATA = 'envo-donnees';
 
 /** Lectures gardées pour le hors-ligne (jamais la progression d'une lecture, jamais la santé). */
-const READS = /^\/api\/(auth\/me|dashboard|interfast\/status|interfast\/overview|planning|planning\/imports(\/[0-9a-f-]{36})?|conversations(\/[0-9a-f-]{36})?|settings|rex|team|account\/voice-tokens)$/;
+const READS = /^\/api\/(auth\/me|dashboard|interfast\/status|interfast\/overview|planning|planning\/imports(\/[0-9a-f-]{36})?|conversations(\/[0-9a-f-]{36})?|settings|rex|team|mail|account\/voice-tokens)$/;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

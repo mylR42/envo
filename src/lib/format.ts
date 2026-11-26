@@ -71,6 +71,15 @@ const FIELDS: Record<string, string> = {
   date: 'Date', due_date: 'Échéance', validity: 'Validité', validity_days: 'Validité (jours)',
   notes: 'Remarques', note: 'Remarque', comment: 'Commentaire', status: 'Statut', reference: 'Référence', ref: 'Référence',
   query: 'Recherche', id: 'Identifiant',
+  // Gmail (outils locaux mail_*)
+  a: 'À', cc: 'Copie', objet: 'Objet', texte: 'Message', en_reponse_a: 'En réponse à', requete: 'Recherche',
+};
+/** Outils d'Envo lui-même (pas d'Interfast) : leur nom en clair. */
+const OWN_TOOLS: Record<string, string> = {
+  mail_envoyer: 'Envoyer un e-mail',
+  mail_chercher: 'Recherche dans Gmail',
+  mail_lire: 'Lecture d’un e-mail',
+  mail_brouillon: 'Brouillon dans Gmail',
 };
 const VERBS: Record<string, string> = {
   create: 'Créer', add: 'Ajouter', new: 'Créer', update: 'Modifier', edit: 'Modifier', delete: 'Supprimer', remove: 'Retirer',
@@ -98,6 +107,7 @@ export function fieldLabel(key: string): string {
 
 /** Nom d'un outil : « create_quote » → « Créer devis », « search_customers » → « Chercher clients ». */
 export function toolLabel(name: string): string {
+  if (OWN_TOOLS[name]) return OWN_TOOLS[name];
   const w = words(name);
   if (!w.length) return name;
   const [first, ...rest] = w;

@@ -107,6 +107,8 @@ Deux réglages nginx propres à Envo : la route d'un tour de l'assistante
 (`/api/conversations/…/turn`) n'est **pas mise en tampon** et attend 10 minutes
 (réponse en flux, plusieurs appels à Claude et à Interfast) ; et
 `Permissions-Policy` autorise le **micro** pour le site lui-même (dictée).
+Depuis la 0.11.0, le serveur se connecte à Gmail : il doit pouvoir sortir vers
+`imap.gmail.com:993` et `smtp.gmail.com:465` (pare-feu du VPS).
 Depuis la 0.8.0, `/api/planning/imports` accepte **12 Mo** (PDF fournisseur en
 base64) : ⚠️ le snippet nginx n'est réécrit qu'à l'installation, il faut
 relancer `install-vps.sh` (ou recopier `deploy/nginx-envo-app.conf`) une fois,
