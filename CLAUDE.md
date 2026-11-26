@@ -137,11 +137,26 @@ cochées avec les arguments EN BASE (jamais ceux de l'écran), une seule fois
 tâche de fond. Seule route au-delà de 1 Mo : `POST /api/planning/imports`
 (12 Mo, nginx compris).
 
-## Gmail
+## Gmail (`server/gmail.ts`, 0.11.0)
 
-Étude dans `GMAIL.md` (rien de codé) : IMAP/SMTP + mot de passe d'application
-d'abord, OAuth si Envo s'ouvre à d'autres artisans. Envoyer un e-mail = une
-écriture, validée comme le reste.
+IMAP + SMTP avec un **mot de passe d'application** (voir `GMAIL.md`). Boîte
+PERSONNELLE (`mail_accounts`, clé `user_id`, mot de passe chiffré, essayé AVANT
+d'être gardé, jamais renvoyé). Hôtes FIXES `imap.gmail.com` / `smtp.gmail.com`.
+Le client est INJECTÉ (`Deps.mailFactory`, faux Gmail dans `tests/server/helpers.ts`
+et dans la démo : mot de passe « abcd efgh ijkl mnop »).
+- Outils locaux, présents SEULEMENT si Gmail est branché : `mail_chercher`
+  (recherche Gmail X-GM-RAW dans « Tous les messages », trouvé par son rôle
+  `\All`, nom traduit), `mail_lire` (BODY.PEEK : ne marque pas lu ; texte borné
+  à 8 000 caractères, historique cité coupé), `mail_brouillon` (APPEND dans
+  `\Drafts`), `mail_envoyer`.
+- ⚠️ **`mail_envoyer` est une ÉCRITURE** : même attente que Interfast
+  (`pending`, table `actions`, « Valider » / « je valide »), exécutée au serveur
+  avec les arguments montrés. Ne jamais assouplir.
+- ⚠️ Le contenu d'un e-mail est une DONNÉE non fiable : `mail_lire` le rend
+  entre balises `<email_non_fiable>`, et la consigne interdit d'obéir à un
+  e-mail. Aucun e-mail n'est gardé en base.
+- Une connexion IMAP par opération ; 30 s au plus ; erreurs traduites
+  (`explain()` : mot de passe refusé, Gmail injoignable).
 
 ## REX (retours d'expérience)
 

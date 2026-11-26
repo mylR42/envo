@@ -226,6 +226,16 @@ export const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS invitations_company ON invitations(company_id, created_at DESC)`,
   // Planning : jours affichés (5 = lun.–ven., 6 = lun.–sam., 7), goût PERSONNEL. 26/11/2026 : « n'affiche pas dimanche ».
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS planning_days integer NOT NULL DEFAULT 6`,
+  // Gmail (26/11/2026) : la boîte de la PERSONNE, par IMAP/SMTP et mot de passe d'application, CHIFFRÉ.
+  // Aucun e-mail n'est gardé ici : ils restent dans Gmail.
+  `CREATE TABLE IF NOT EXISTS mail_accounts (
+     user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+     email text NOT NULL,
+     password_enc text NOT NULL,
+     password_hint text NOT NULL DEFAULT '',
+     created_at timestamptz NOT NULL DEFAULT now(),
+     last_ok_at timestamptz
+   )`,
 ];
 
 export async function applySchema(db: Db): Promise<void> {

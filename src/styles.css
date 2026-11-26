@@ -3219,3 +3219,39 @@ code {
     font-size: 0.95rem;
   }
 }
+.confirm__mailtext {
+  white-space: pre-wrap;
+}
+
+/* ---------- Paramètres → Gmail ---------- */
+.mailstate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--green);
+  overflow-wrap: anywhere;
+}
+.steps {
+  margin: 0.4rem 0 1rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+  background: var(--blue-soft);
+  color: var(--navy);
+}
+.steps summary {
+  font-weight: 700;
+  cursor: pointer;
+}
+.steps ol {
+  margin: 0.6rem 0 0.4rem;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.35rem;
+}
+.steps a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-weight: 700;
+}

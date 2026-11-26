@@ -6,8 +6,9 @@
  *
  * La clé Interfast ne revient jamais du serveur : seuls ses 4 derniers caractères.
  */
-import { AndroidLogo, AppleLogo, Brain, Buildings, CheckCircle, Copy, FloppyDisk, Gear, Key, LockKey, Microphone, PencilSimple, Plugs, Plus, SignOut, Trash, UserCircle, UsersThree, Warning } from '@phosphor-icons/react';
+import { AndroidLogo, EnvelopeSimple, AppleLogo, Brain, Buildings, CheckCircle, Copy, FloppyDisk, Gear, Key, LockKey, Microphone, PencilSimple, Plugs, Plus, SignOut, Trash, UserCircle, UsersThree, Warning } from '@phosphor-icons/react';
 import { Team } from './Team';
+import { MailSettings } from './MailSettings';
 import { activeTab, Tabs, type TabDef } from '../ui/Tabs';
 import { PageHead } from '../ui/PageHead';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
@@ -44,6 +45,7 @@ const nstr = (v: number | null) => (v === null || v === undefined ? '' : String(
 const SETTINGS_TABS: readonly TabDef[] = [
   { id: 'entreprise', label: 'Entreprise', icon: Buildings },
   { id: 'interfast', label: 'Interfast', icon: Plugs },
+  { id: 'gmail', label: 'Gmail', icon: EnvelopeSimple },
   { id: 'equipe', label: 'Équipe', icon: UsersThree },
   { id: 'memoire', label: 'Mémoire', icon: Brain },
   { id: 'voix', label: 'Siri', icon: Microphone },
@@ -245,6 +247,8 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
         )}
       </Section>
       )}
+
+      {tab === 'gmail' && <MailSettings defaultEmail={user.email} />}
 
       {tab === 'equipe' && <Team user={user} onLeft={onLogout} />}
 

@@ -33,6 +33,7 @@ import { toolLabel } from '../src/lib/format';
 import { collectOverview, OVERVIEW_TTL_MS, type Overview, type RecipeCall } from './overview';
 import { addDays, collectPlanning, mondayOf, type Planning } from './planning';
 import { isPdf, PDF_MAX_BYTES, preparerImport, type ImportProposal } from './planimport';
+import { gmailClient, MailError, type MailClient } from './gmail';
 
 /** Corps d'un envoi de PDF : 8 Mo en base64 (× 4/3) plus les consignes. */
 const IMPORT_BODY_MAX = 12 * 1024 * 1024;
@@ -44,6 +45,8 @@ export interface Deps {
   mailer: Mailer;
   llm: Llm | null;
   mcpFactory: (url: string, apiKey: string | null) => McpClient;
+  /** Gmail (IMAP/SMTP). Par défaut le vrai ; doublé dans les tests. */
+  mailFactory?: (email: string, appPassword: string) => MailClient;
   now?: () => Date;
 }
 
@@ -432,6 +435,73 @@ export function createApp(deps: Deps) {
     await db.query('DELETE FROM sessions WHERE user_id = $1 AND token_hash <> $2', [u.id, sha256(getCookie(c, SESSION_COOKIE) ?? '')]);
     if (mailer.enabled) await mailer.send({ to: u.email, ...passwordChangedMail({ at: now() }) }).catch((e) => console.error('alerte non envoyée :', (e as Error).message));
     return c.json({ ok: true });
+  });
+
+  /* ---------- Gmail (IMAP/SMTP, mot de passe d'application) ---------- */
+  /*
+   * La boîte de la PERSONNE (pas de l'entreprise). Le mot de passe d'application
+   * est essayé AVANT d'être gardé, chiffré ; il ne repart jamais au navigateur.
+   * Aucun e-mail n'est stocké : l'assistante les lit à la demande (server/gmail.ts).
+   */
+  const mailFactory = deps.mailFactory ?? gmailClient;
+  type MailRow = { email: string; password_enc: string; password_hint: string; last_ok_at: Date | null };
+  const mailRow = async (userId: string) => (await db.query<MailRow>('SELECT email, password_enc, password_hint, last_ok_at FROM mail_accounts WHERE user_id = $1', [userId]))[0] ?? null;
+  async function mailFor(u: User): Promise<MailClient | null> {
+    const r = await mailRow(u.id);
+    const pass = r ? decrypt(cfg.secretKey, r.password_enc) : null;
+    return r && pass ? mailFactory(r.email, pass) : null;
+  }
+  const mailView = (r: MailRow | null) => ({ configured: !!r, email: r?.email ?? '', hint: r?.password_hint ?? '', last_ok_at: r?.last_ok_at ?? null });
+
+  app.get('/api/mail', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    return c.json(mailView(await mailRow(u.id)));
+  });
+
+  app.put('/api/mail', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    if (overRate(`mail:${u.id}`, 10, 3600_000)) return c.json({ error: 'trop d’essais en une heure, patientez' }, 429);
+    const b = await readJson<{ email: string; password: string }>(c);
+    const email = normalizeEmail(String(b.email ?? ''));
+    const pass = String(b.password ?? '').replace(/\s+/g, '');
+    if (!isEmail(email)) return c.json({ error: 'adresse e-mail invalide' }, 400);
+    if (pass.length < 8 || pass.length > 100) return c.json({ error: 'collez le mot de passe d’application (16 lettres) créé dans votre compte Google' }, 400);
+    try {
+      await mailFactory(email, pass).verify();
+    } catch (e) {
+      return c.json({ error: e instanceof MailError ? e.message : 'Gmail injoignable' }, 400);
+    }
+    await db.query(
+      `INSERT INTO mail_accounts (user_id, email, password_enc, password_hint, created_at, last_ok_at) VALUES ($1, $2, $3, $4, $5, $5)
+       ON CONFLICT (user_id) DO UPDATE SET email = $2, password_enc = $3, password_hint = $4, last_ok_at = $5`,
+      [u.id, email, encrypt(cfg.secretKey, pass), hint(pass), now()],
+    );
+    return c.json(mailView(await mailRow(u.id)));
+  });
+
+  app.post('/api/mail/test', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    if (overRate(`mail:${u.id}`, 10, 3600_000)) return c.json({ error: 'trop d’essais en une heure, patientez' }, 429);
+    const m = await mailFor(u);
+    if (!m) return c.json({ ok: false, error: 'Gmail n’est pas branché' });
+    try {
+      await m.verify();
+      await db.query('UPDATE mail_accounts SET last_ok_at = $2 WHERE user_id = $1', [u.id, now()]);
+      const unread = await m.search({ non_lus: true, max: 25 }).catch(() => null);
+      return c.json({ ok: true, unread: unread?.length ?? null });
+    } catch (e) {
+      return c.json({ ok: false, error: e instanceof MailError ? e.message : 'Gmail injoignable' });
+    }
+  });
+
+  app.delete('/api/mail', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    await db.query('DELETE FROM mail_accounts WHERE user_id = $1', [u.id]);
+    return c.json(mailView(null));
   });
 
   /* ---------- Équipe : plusieurs utilisateurs par entreprise ---------- */
@@ -889,6 +959,7 @@ export function createApp(deps: Deps) {
       mcpNote = e instanceof McpError ? e.message : 'Interfast injoignable';
     }
     const hist = await history(conv.id);
+    const mail = await mailFor(u);
     const res = await runTurn(
       {
         llm,
@@ -896,6 +967,7 @@ export function createApp(deps: Deps) {
         effort: opts.effort ?? anthropic.effort,
         mcp,
         mcpTools,
+        mail,
         systemPrompt: SYSTEM_PROMPT,
         context: conv.context + (mcp ? '' : '\n\n# Interfast\nNON CONNECTÉ : l’artisan doit renseigner l’URL du serveur MCP dans Paramètres. Tu peux préparer un brouillon, pas le créer.'),
         history: hist,
@@ -1578,6 +1650,7 @@ export function createApp(deps: Deps) {
       interfast: { configured: !!s.mcp_url, calls_week: tools.calls, errors_week: tools.errors, avg_ms: tools.avg_ms },
       assistant: llm !== null,
       profile_complete: !!(s.company && s.trade && s.hourly_rate !== null),
+      mail: !!(await mailRow(u.id)),
       recent,
     });
   });

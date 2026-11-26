@@ -10,6 +10,7 @@
 | Mots de passe en base | scrypt (N = 2^15, r = 8, p = 1), paramètres dans le hash. |
 | Fuite de la clé Interfast | Chiffrée AES-256-GCM (`ENVO_SECRET_KEY`), jamais renvoyée au navigateur (4 derniers caractères seulement). |
 | Accès aux données d’un autre compte | Toute requête filtrée par `user_id` (séances, imports, clés vocales) ou par `company_id` (réglages, Interfast, mémoire : partagés par l’équipe) ; identifiants vérifiés (UUID). |
+| Gmail | Mot de passe d’application chiffré (AES-256-GCM), essayé avant d’être gardé, jamais renvoyé ; hôtes fixes (imap/smtp.gmail.com) ; aucun e-mail stocké ; **envoi seulement après « Valider »** ; contenu des e-mails balisé comme donnée non fiable (injection de consignes). Révocable chez Google sans changer le vrai mot de passe. |
 | Invitation détournée | Jeton aléatoire, seul son SHA-256 en base, 7 jours, usage unique ; avec un compte existant, il faut être connecté sur l’adresse invitée. Un membre ne change ni Interfast ni l’équipe (rôle `admin` exigé, contrôlé côté serveur). Un membre retiré perd ses séances et imports, et ses sessions. |
 | SSRF par l’URL MCP saisie | https seulement, pas d’identifiants dans l’URL, adresses locales et privées refusées. |
 | Écriture non voulue dans Interfast (erreur ou injection de consignes via un résultat d’outil) | Tout outil qui MODIFIE Interfast attend le « Valider » de l’artisan ; exécuté par le serveur avec les arguments montrés ; dans le doute, un outil est traité comme une écriture. À la voix, seule une formule explicite valide. |

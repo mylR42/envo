@@ -4,7 +4,7 @@
  * l'écran ne lit jamais le format de l'API lui-même.
  */
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages';
-import { IF_PREFIX, type ActionState, type Pending } from './agent';
+import { IF_PREFIX, MAIL_SEND, type ActionState, type Pending } from './agent';
 
 export interface DraftLine {
   designation: string;
@@ -78,6 +78,13 @@ export function toView(history: BetaMessageParam[], pending: Pending | null, act
           lignes: Array.isArray(input.lignes) ? (input.lignes as DraftLine[]) : [],
           remarques: input.remarques ? String(input.remarques) : undefined,
         });
+      } else if (name === MAIL_SEND) {
+        const state = actions.get(id);
+        if (state) out.push({ type: 'confirm', id, tool: MAIL_SEND, input, state });
+      } else if (name.startsWith('mail_')) {
+        const l: Extract<ViewItem, { type: 'lookup' }> = { type: 'lookup', tool: name, ok: null };
+        lookups.set(id, l);
+        out.push(l);
       } else if (name === 'memoriser') {
         out.push({ type: 'memo', text: String(input.contenu ?? '') });
       } else if (name.startsWith(IF_PREFIX)) {

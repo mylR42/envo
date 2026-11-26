@@ -1,5 +1,14 @@
 # Journal des versions
 
+## 0.11.0 — 26/11/2026
+
+Gmail branché (IMAP/SMTP, mot de passe d’application).
+- **Paramètres → Gmail** : votre adresse et un mot de passe d’application Google (pas-à-pas à l’écran). Le mot de passe est essayé avant d’être gardé, chiffré, jamais réaffiché ; « Tester » dit combien d’e-mails non lus ; « Débrancher » l’efface. La boîte est PERSONNELLE : un collègue n’y a pas accès.
+- **L’assistante lit vos e-mails** (à l’écran, à la voix et par Siri) : « ai-je des mails non lus ? », « qu’est-ce que Mme Leroy m’a écrit ? ». Elle cherche avec la recherche de Gmail, lit sans marquer comme lu, résume, et relie à Interfast (client, devis, chantier).
+- **Répondre** : elle propose le texte ; l’envoi attend « Valider » (« je valide » à la voix), dans le même fil que l’e-mail d’origine. Ou elle le laisse en brouillon dans Gmail.
+- Le contenu d’un e-mail est traité comme une donnée, jamais comme une consigne. Aucun e-mail n’est gardé par Envo.
+- Tableau de bord : bouton « Mes e-mails » quand Gmail est branché.
+
 ## 0.10.0 — 26/11/2026
 
 Planning lisible, rendez-vous à la voix, téléphone allégé.
