@@ -6,7 +6,8 @@
  *
  * La clé Interfast ne revient jamais du serveur : seuls ses 4 derniers caractères.
  */
-import { AndroidLogo, AppleLogo, Brain, Buildings, CheckCircle, Copy, FloppyDisk, Gear, Key, LockKey, Microphone, PencilSimple, Plugs, Plus, SignOut, Trash, UserCircle, Warning } from '@phosphor-icons/react';
+import { AndroidLogo, AppleLogo, Brain, Buildings, CheckCircle, Copy, FloppyDisk, Gear, Key, LockKey, Microphone, PencilSimple, Plugs, Plus, SignOut, Trash, UserCircle, UsersThree, Warning } from '@phosphor-icons/react';
+import { Team } from './Team';
 import { PageHead } from '../ui/PageHead';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { api, type User } from '../lib/api';
@@ -62,6 +63,8 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
   const [msg, setMsg] = useState<{ where: string; ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState('');
   const [test, setTest] = useState<{ ok: boolean; error?: string; tools?: { name: string; description: string; write: boolean }[] } | null>(null);
+  /** Réglages de l'entreprise et Interfast : administrateurs seulement ; un membre les voit. */
+  const isAdmin = user.role === 'admin';
 
   const load = (d: SettingsData) => {
     setS(d);
@@ -103,7 +106,7 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
     <label className="field">
       <span>{label}</span>
       <div className="field__wrap">
-        <input inputMode={opts.numeric ? 'decimal' : undefined} value={form[k] ?? ''} placeholder={opts.placeholder} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />
+        <input disabled={!isAdmin} inputMode={opts.numeric ? 'decimal' : undefined} value={form[k] ?? ''} placeholder={opts.placeholder} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />
         {opts.suffix && <em>{opts.suffix}</em>}
       </div>
     </label>
@@ -128,6 +131,7 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
         {[
           { id: 'entreprise', label: 'Entreprise', I: Buildings },
           { id: 'interfast', label: 'Interfast', I: Plugs },
+          { id: 'equipe', label: 'Équipe', I: UsersThree },
           { id: 'memoire', label: 'Mémoire', I: Brain },
           { id: 'voix', label: 'Siri', I: Microphone },
           { id: 'securite', label: 'Sécurité', I: LockKey },
@@ -143,13 +147,14 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
           className="form-grid"
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
-            void save('entreprise', { name, ...form });
+            void save('entreprise', isAdmin ? { name, ...form } : { name });
           }}
         >
           <label className="field">
             <span>Votre nom</span>
             <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
           </label>
+          {!isAdmin && <p className="alert alert--info field--wide">Les réglages de l’entreprise sont partagés par l’équipe et modifiés par un administrateur. Votre nom, lui, est à vous.</p>}
           {field('company', 'Entreprise')}
           {field('trade', 'Métier', { placeholder: 'plombier chauffagiste, électricien…' })}
           {field('hourly_rate', 'Taux horaire', { suffix: '€ HT', numeric: true })}
@@ -159,7 +164,7 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
           {field('validity_days', 'Validité des devis', { suffix: 'jours', numeric: true, placeholder: '30' })}
           <label className="field field--wide">
             <span>Consignes pour l’assistante</span>
-            <textarea rows={3} value={form.notes ?? ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Ex. : toujours ajouter une ligne d’évacuation des gravats ; arrondir les totaux à l’euro." />
+            <textarea disabled={!isAdmin} rows={3} value={form.notes ?? ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Ex. : toujours ajouter une ligne d’évacuation des gravats ; arrondir les totaux à l’euro." />
           </label>
           {note('entreprise')}
           <button className="btn btn--primary" disabled={busy === 'entreprise'}>
@@ -187,17 +192,20 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
         >
           <label className="field field--wide">
             <span>URL du serveur MCP</span>
-            <input type="url" inputMode="url" value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)} placeholder="https://…" autoComplete="off" spellCheck={false} />
+            <input disabled={!isAdmin} type="url" inputMode="url" value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)} placeholder="https://…" autoComplete="off" spellCheck={false} />
           </label>
           <label className="field field--wide">
             <span>Clé API {s.mcp.keyHint ? `(enregistrée : ${s.mcp.keyHint})` : '(si elle n’est pas déjà dans l’URL)'}</span>
-            <input type="password" value={mcpKey} onChange={(e) => setMcpKey(e.target.value)} placeholder={s.mcp.keyHint ? 'Laisser vide pour garder la clé actuelle' : 'Collez votre clé'} autoComplete="off" />
+            <input disabled={!isAdmin} type="password" value={mcpKey} onChange={(e) => setMcpKey(e.target.value)} placeholder={s.mcp.keyHint ? 'Laisser vide pour garder la clé actuelle' : 'Collez votre clé'} autoComplete="off" />
           </label>
           {note('interfast')}
+          {!isAdmin && <p className="muted field--wide">Connexion partagée par toute l’équipe : seul un administrateur la modifie.</p>}
           <div className="row">
-            <button className="btn btn--primary" disabled={busy === 'interfast'}>
-              <FloppyDisk size={18} /> Enregistrer
-            </button>
+            {isAdmin && (
+              <button className="btn btn--primary" disabled={busy === 'interfast'}>
+                <FloppyDisk size={18} /> Enregistrer
+              </button>
+            )}
             <button
               type="button"
               className="btn"
@@ -210,7 +218,7 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
             >
               <Plugs size={18} /> {busy === 'test' ? 'Test en cours…' : 'Tester la connexion'}
             </button>
-            {s.mcp.keyHint && (
+            {s.mcp.keyHint && isAdmin && (
               <button type="button" className="link-btn" onClick={() => save('interfast', { mcp_key_clear: true })}>
                 Retirer la clé
               </button>
@@ -238,6 +246,8 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
           </div>
         )}
       </Section>
+
+      <Team user={user} open={section === 'equipe'} onLeft={onLogout} />
 
       <Memory open={section === 'memoire'} />
 
@@ -282,7 +292,7 @@ function Memory({ open }: { open: boolean }) {
   };
 
   return (
-    <Section id="memoire" open={open} icon={<Brain size={20} weight="light" />} title="Mémoire de l’assistante" intro="Ce qu’elle a retenu de vos séances (tarifs, habitudes, décisions) et vos avis. Elle s’en sert à chaque nouveau devis. Corrigez ou supprimez ce qui n’est plus vrai.">
+    <Section id="memoire" open={open} icon={<Brain size={20} weight="light" />} title="Mémoire de l’assistante" intro="Partagée par toute l’équipe. Ce qu’elle a retenu des séances (tarifs, habitudes, décisions) et vos avis. Elle s’en sert à chaque nouveau devis. Corrigez ou supprimez ce qui n’est plus vrai.">
       <form className="row" onSubmit={add}>
         <input className="grow" value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="Ajouter une règle : « Je facture le déplacement 35 € HT au-delà de 20 km »" aria-label="Nouvelle règle" />
         <button className="btn btn--primary" disabled={!adding.trim()}>

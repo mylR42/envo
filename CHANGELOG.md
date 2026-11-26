@@ -1,5 +1,23 @@
 # Journal des versions
 
+## 0.9.0 — 26/11/2026
+
+Plusieurs utilisateurs par entreprise.
+- **Équipe** (Paramètres → Équipe) : un administrateur invite par e-mail (lien valable 7 jours, utilisable une fois), choisit le rôle, retire quelqu’un. Il reste toujours au moins un administrateur.
+- **Partagés par l’équipe** : la connexion Interfast, les réglages de l’entreprise, la mémoire de l’assistante, le tableau de bord et le planning. **À chacun** : ses séances, ses imports, sa clé Siri, la lecture à voix haute.
+- **Rôles** : administrateur (entreprise, Interfast, équipe) ; membre (devis, planning, imports, mémoire) — il voit les réglages sans pouvoir les changer.
+- Page « Rejoindre l’équipe » : sans compte, on le crée sur place ; avec un compte, on se connecte sur la bonne adresse puis on accepte.
+- Un membre retiré (ou qui quitte) perd ses séances et imports (ils contiennent les données de l’entreprise) ; la mémoire qu’il a écrite reste à l’équipe.
+- Comptes existants : chacun devient administrateur de sa propre entreprise, rien n’est perdu.
+
+## 0.8.0 — 26/11/2026
+
+Planning, import de planning fournisseur, marge.
+- **Planning** (nouvel onglet) : la semaine lue dans Interfast, jour par jour, filtrable par intervenant ; semaine précédente / suivante. Planifier ou modifier passe par l’assistante, et toute écriture se valide comme un devis.
+- **Import d’un planning fournisseur en PDF** : vos consignes (au clavier ou dictées) → une proposition ligne à ligne (chantier, intervenant, doublons repérés, ce qui partira à Interfast) → « Valider l’import » pour les seules lignes cochées. Rien n’est écrit avant. Le PDF n’est pas gardé.
+- **Marge** : le graphique du CA montre la marge brute dans chaque colonne, et deux indicateurs s’ajoutent (marge du mois, taux de marge). Sans coûts dans Interfast, la marge reste « – » : jamais estimée.
+- Gmail : étude des façons de se connecter (`GMAIL.md`), pas encore de code.
+
 ## 0.7.1 — 12/11/2026
 
 - iPhone : plus rien sous la barre d’état (le logo et « Envo » y étaient floutés) ; zones sûres via `--safe-top` / `--safe-bottom` partout.

@@ -94,7 +94,7 @@ function TipBox({ tip }: { tip: Tip | null }) {
  * la valeur du total écrite au-dessus de la DERNIÈRE colonne et de la plus haute
  * seulement (étiquettes sélectives).
  */
-export function ColumnChart({ rows, series, format = shortEuros, caption }: { rows: Row[]; series: SeriesDef[]; format?: (v: number) => string; caption: string }) {
+export function ColumnChart({ rows, series, format = shortEuros, caption, totalLabel = 'Total' }: { rows: Row[]; series: SeriesDef[]; format?: (v: number) => string; caption: string; totalLabel?: string }) {
   const [tip, setTip] = useState<Tip | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const totals = rows.map((r) => series.reduce((a, s) => a + (r.values[s.key] ?? 0), 0));
@@ -123,7 +123,7 @@ export function ColumnChart({ rows, series, format = shortEuros, caption }: { ro
       title: r.full ?? r.label,
       lines: [
         ...series.map((s) => ({ slot: series.length > 1 ? s.slot : undefined, label: s.label, value: r.values[s.key] == null ? '–' : format(r.values[s.key]!) })),
-        ...(series.length > 1 ? [{ label: 'Total', value: format(totals[i]!) }] : []),
+        ...(series.length > 1 ? [{ label: totalLabel, value: format(totals[i]!) }] : []),
       ],
     });
   };
@@ -257,7 +257,16 @@ export function SegmentBar({ parts, caption }: { parts: { label: string; value: 
 }
 
 /** Vue tableau d'une série de lignes : toutes les valeurs, toujours lisibles. */
-export function DataTable({ rows, cols, format = fullEuros, total }: { rows: Row[]; cols: { key: string; label: string }[]; format?: (v: number | null) => string; total?: boolean }) {
+export interface Col {
+  key: string;
+  label: string;
+  /** Format propre à la colonne (un taux à côté de montants). */
+  format?: (v: number | null) => string;
+  /** Total de la colonne quand ce n'est pas une somme (un taux : rapport des totaux). */
+  total?: number | null;
+}
+
+export function DataTable({ rows, cols, format = fullEuros, total }: { rows: Row[]; cols: Col[]; format?: (v: number | null) => string; total?: boolean }) {
   const sum = (k: string) => {
     const vals = rows.map((r) => r.values[k]).filter((v): v is number => v !== null);
     return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
@@ -278,7 +287,7 @@ export function DataTable({ rows, cols, format = fullEuros, total }: { rows: Row
             <tr key={r.label}>
               <th scope="row">{r.full ?? r.label}</th>
               {cols.map((c) => (
-                <td key={c.key}>{format(r.values[c.key] ?? null)}</td>
+                <td key={c.key}>{(c.format ?? format)(r.values[c.key] ?? null)}</td>
               ))}
             </tr>
           ))}
@@ -288,7 +297,7 @@ export function DataTable({ rows, cols, format = fullEuros, total }: { rows: Row
             <tr>
               <th scope="row">Total</th>
               {cols.map((c) => (
-                <td key={c.key}>{format(sum(c.key))}</td>
+                <td key={c.key}>{(c.format ?? format)('total' in c ? (c.total ?? null) : sum(c.key))}</td>
               ))}
             </tr>
           </tfoot>

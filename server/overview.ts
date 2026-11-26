@@ -53,7 +53,8 @@ export interface EventRow {
 }
 export interface Series {
   /** Six derniers mois, du plus ancien au mois en cours. AAAA-MM. */
-  ca_mensuel: { mois: string; montant_ht: number | null }[];
+  /** `marge_ht` : CA HT moins les coûts directs (achats, main-d'œuvre au coût) — null si Interfast ne donne pas les coûts. */
+  ca_mensuel: { mois: string; montant_ht: number | null; marge_ht: number | null }[];
   devis_mensuels: { mois: string; en_attente: number | null; acceptes: number | null; refuses: number | null }[];
   pipeline: { statut: string; nombre: number | null; montant_ht: number | null }[];
   impayes_anciennete: { tranche: string; nombre: number | null; montant_ttc: number | null }[];
@@ -93,7 +94,7 @@ export const PUBLISH_TOOL: BetaTool = {
     properties: {
       kpis: {
         type: 'array',
-        description: 'Indicateurs. Clés attendues : devis_en_attente (nombre), montant_devis_en_attente (eur HT), devis_acceptes_mois (nombre), taux_transformation (pourcent, sur 90 jours), ca_facture_mois (eur HT), factures_impayees (eur TTC). valeur = null si Interfast ne permet pas de la calculer.',
+        description: 'Indicateurs. Clés attendues : devis_en_attente (nombre), montant_devis_en_attente (eur HT), devis_acceptes_mois (nombre), taux_transformation (pourcent, sur 90 jours), ca_facture_mois (eur HT), marge_mois (eur HT : marge brute du mois = CA HT facturé − coûts directs), taux_marge (pourcent : marge brute ÷ CA HT, sur les 6 mois), factures_impayees (eur TTC). valeur = null si Interfast ne permet pas de la calculer.',
         items: {
           type: 'object',
           properties: {
@@ -140,8 +141,13 @@ export const PUBLISH_TOOL: BetaTool = {
         properties: {
           ca_mensuel: {
             type: 'array',
-            description: 'Montant HT facturé par mois (date de facture).',
-            items: { type: 'object', properties: { mois: { type: 'string' }, montant_ht: { type: ['number', 'null'] } }, required: ['mois', 'montant_ht'], additionalProperties: false },
+            description: 'Montant HT facturé par mois (date de facture), et sa marge brute : CA HT − coûts directs (prix d’achat des fournitures et coût de la main-d’œuvre, ou la marge que donne Interfast sur ses pièces). marge_ht = null si Interfast ne fournit pas ces coûts — ne jamais l’estimer avec un taux.',
+            items: {
+              type: 'object',
+              properties: { mois: { type: 'string' }, montant_ht: { type: ['number', 'null'] }, marge_ht: { type: ['number', 'null'] } },
+              required: ['mois', 'montant_ht', 'marge_ht'],
+              additionalProperties: false,
+            },
           },
           devis_mensuels: {
             type: 'array',
@@ -178,9 +184,11 @@ export const PUBLISH_TOOL: BetaTool = {
 export function overviewPrompt(today: string): string {
   return `Tu prépares le tableau de bord d'un artisan du bâtiment à partir de son logiciel de gestion Interfast. Date du jour : ${today}.
 
-Interroge Interfast avec les outils "if_" (tous en lecture) pour connaître : les devis (statut, montant, date d'envoi, client), les factures (payées ou non, échéance), et le planning des 14 prochains jours. Fais les appels nécessaires, en parallèle quand c'est possible, sans dépasser une dizaine d'appels.
+Interroge Interfast avec les outils "if_" (tous en lecture) pour connaître : les devis (statut, montant, date d'envoi, client), les factures (payées ou non, échéance, et leurs coûts ou leur marge quand Interfast les donne : prix d'achat des lignes, déboursé, marge), et le planning des 14 prochains jours. Fais les appels nécessaires, en parallèle quand c'est possible, sans dépasser une dizaine d'appels.
 
 RÈGLE ABSOLUE : chaque valeur publiée doit venir des réponses d'Interfast. N'invente jamais un chiffre, un client ou une référence. Si une information n'est pas disponible, mets null (ou une liste vide) et dis-le dans "manques". Tu peux faire des sommes et des comptes à partir des données lues.
+
+La MARGE est une marge brute : CA HT facturé moins les coûts directs lus dans Interfast (prix d'achat des fournitures, coût de la main-d'œuvre), ou la marge qu'Interfast calcule lui-même. Sans coûts dans Interfast, marge = null et un manque le dit ; ne l'estime JAMAIS à partir d'un taux habituel.
 
 Termine en appelant publier_tableau, une seule fois.`;
 }
@@ -209,7 +217,14 @@ export function sanitize(input: unknown, sources: string[]): Overview {
   const month = (v: unknown) => (/^\d{4}-\d{2}$/.test(s(v, 7)) ? s(v, 7) : '');
   return {
     series: {
-      ca_mensuel: rows(se.ca_mensuel, 12).map((r) => ({ mois: month(r.mois), montant_ht: n(r.montant_ht) })).filter((r) => r.mois),
+      ca_mensuel: rows(se.ca_mensuel, 12)
+        .map((r) => {
+          const ca = n(r.montant_ht);
+          const m = n(r.marge_ht);
+          // Une marge sans CA, ou plus grande que le CA, ne se lit pas : écartée plutôt qu'affichée fausse.
+          return { mois: month(r.mois), montant_ht: ca, marge_ht: m !== null && ca !== null && m <= ca ? m : null };
+        })
+        .filter((r) => r.mois),
       devis_mensuels: rows(se.devis_mensuels, 12)
         .map((r) => ({ mois: month(r.mois), en_attente: n(r.en_attente), acceptes: n(r.acceptes), refuses: n(r.refuses) }))
         .filter((r) => r.mois),
@@ -272,15 +287,45 @@ export interface CollectDeps {
   logTool(tool: string, ok: boolean, ms: number): Promise<void>;
 }
 
+/**
+ * Ce qui distingue une lecture d'une autre (tableau de bord, planning, import
+ * d'un PDF) : la consigne, l'outil local qui publie, le nettoyage du résultat,
+ * le premier message. La boucle, elle, est commune : outils de LECTURE seuls,
+ * recette rejouée d'abord, publication par l'outil local.
+ */
+export interface ReadSpec<T> {
+  system: string;
+  publish: BetaTool;
+  sanitize(input: unknown, sources: string[]): T;
+  /** Premier message (texte, ou blocs : un PDF par exemple). */
+  intro: string | BetaContentBlockParam[];
+  /** Phrase ajoutée quand la recette a été rejouée. */
+  replayNote?: string;
+  maxTokens?: number;
+  effort?: 'low' | 'medium' | 'high';
+}
+
 export async function collectOverview(d: CollectDeps): Promise<{ overview: Overview; recipe: RecipeCall[] }> {
+  const r = await collectRead(d, {
+    system: overviewPrompt(d.today),
+    publish: PUBLISH_TOOL,
+    sanitize,
+    intro: 'Prépare mon tableau de bord.',
+    replayNote: 'Voici les réponses d’Interfast aux appels qui ont servi la dernière fois, faits à l’instant. Si elles suffisent, publie directement ; sinon, complète par les appels nécessaires.',
+  });
+  return { overview: r.data, recipe: r.recipe };
+}
+
+export async function collectRead<T>(d: CollectDeps, spec: ReadSpec<T>): Promise<{ data: T; recipe: RecipeCall[] }> {
+  const PUBLISH = spec.publish;
   // ⚠️ Lecture seule : les outils d'écriture ne sont pas proposés, ni rejoués.
   const readTools = d.mcpTools.filter((t) => !isWriteTool(t)).sort((a, b) => a.name.localeCompare(b.name));
-  if (!readTools.length) throw new McpError('Interfast ne propose aucun outil de lecture : impossible de construire le tableau de bord.');
+  if (!readTools.length) throw new McpError('Interfast ne propose aucun outil de lecture : impossible de lire vos données.');
   const byName = new Map(readTools.map((t) => [modelName(t.name), t]));
   const byRealName = new Map(readTools.map((t) => [t.name, t]));
   const tools: BetaTool[] = [
     ...readTools.map((t) => ({ name: modelName(t.name), description: (t.description ?? t.title ?? t.name).slice(0, 4000), input_schema: { type: 'object' as const, ...(t.inputSchema ?? {}) } })),
-    PUBLISH_TOOL,
+    PUBLISH,
   ];
   const sources: string[] = [];
   const used: RecipeCall[] = [];
@@ -311,15 +356,18 @@ export async function collectOverview(d: CollectDeps): Promise<{ overview: Overv
 
   // 1. La recette de la dernière fois, rejouée en parallèle avant d'appeler Claude.
   const replay = (d.recipe ?? []).filter((c) => byRealName.has(c.tool)).slice(0, RECIPE_MAX);
-  let intro = 'Prépare mon tableau de bord.';
+  const intro: BetaContentBlockParam[] = typeof spec.intro === 'string' ? [{ type: 'text', text: spec.intro }] : [...spec.intro];
   if (replay.length) {
     d.onStatus?.('Lecture d’Interfast…');
     const answers = await Promise.all(replay.map(async (c) => ({ c, r: await call(byRealName.get(c.tool)!, c.args) })));
-    intro =
-      'Prépare mon tableau de bord. Voici les réponses d’Interfast aux appels qui ont servi la dernière fois, faits à l’instant. Si elles suffisent, publie directement ; sinon, complète par les appels nécessaires.\n\n' +
-      answers.map(({ c, r }) => `### ${modelName(c.tool)} ${JSON.stringify(c.args)}${r.isError ? ' (ERREUR)' : ''}\n${r.text}`).join('\n\n');
+    intro.push({
+      type: 'text',
+      text:
+        `${spec.replayNote ?? 'Voici les réponses d’Interfast aux appels de la dernière fois, faits à l’instant.'}\n\n` +
+        answers.map(({ c, r }) => `### ${modelName(c.tool)} ${JSON.stringify(c.args)}${r.isError ? ' (ERREUR)' : ''}\n${r.text}`).join('\n\n'),
+    });
   }
-  const messages: BetaMessageParam[] = [{ role: 'user', content: intro }];
+  const messages: BetaMessageParam[] = [{ role: 'user', content: intro.length === 1 && intro[0]!.type === 'text' ? intro[0]!.text : intro }];
 
   // 2. Claude complète si besoin, puis publie.
   for (let step = 0; step < OVERVIEW_MAX_STEPS; step++) {
@@ -328,19 +376,19 @@ export async function collectOverview(d: CollectDeps): Promise<{ overview: Overv
     const c0 = Date.now();
     const res = await d.llm.create({
       model: d.model,
-      max_tokens: 16000,
-      system: overviewPrompt(d.today),
+      max_tokens: spec.maxTokens ?? 16000,
+      system: spec.system,
       tools,
       tool_choice: { type: 'auto' },
-      output_config: { effort: 'low' },
+      output_config: { effort: spec.effort ?? 'low' },
       ...(d.thinking ? { thinking: d.thinking } : {}),
       messages,
     });
     d.onCalc?.({ state: 'fini', ms: Date.now() - c0 });
     messages.push({ role: 'assistant', content: res.content as BetaContentBlockParam[] });
     const uses = res.content.filter((b) => b.type === 'tool_use');
-    const publish = uses.find((b) => b.name === PUBLISH_TOOL.name);
-    if (publish) return { overview: sanitize(publish.input, sources), recipe: used.slice(0, RECIPE_MAX) };
+    const publish = uses.find((b) => b.name === PUBLISH.name);
+    if (publish) return { data: spec.sanitize(publish.input, sources), recipe: used.slice(0, RECIPE_MAX) };
     if (res.stop_reason !== 'tool_use' || !uses.length) break;
     const results = await Promise.all(
       uses.map(async (b): Promise<BetaToolResultBlockParam> => {
