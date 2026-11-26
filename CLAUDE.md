@@ -9,7 +9,7 @@ Guide pour Claude Code sur ce dépôt.
 devis avec l'artisan, à la voix ou au clavier, et le crée dans **Interfast**.
 
 Écrans : écran d'entrée (comptes), **Tableau de bord**, **AssistDevis**,
-**Planning** (0.8.0), **Paramètres** (dont **Équipe**, 0.9.0), et la page du
+**Planning** (0.8.0), **Import PDF** (menu à part depuis la 0.9.1), **Paramètres** (dont **Équipe**, 0.9.0), et la page du
 lien d'invitation (`#/rejoindre/…`). Version : `version` de `package.json`, affichée sur l'écran
 d'entrée et dans Paramètres.
 
@@ -111,7 +111,11 @@ La recette (`settings.planning_recipe`) garde les dates sous forme de repères
 semaine, elle lit la bonne période. ⚠️ Planifier ou modifier passe par une
 séance de l'assistante (bouton → texte de départ) : validation comme un devis.
 
-## Import d'un planning fournisseur (`server/planimport.ts`, `ImportPanel.tsx`)
+## Import d'un planning fournisseur (`server/planimport.ts`, `Import.tsx`, `ImportPanel.tsx`)
+
+⚠️ Écran et entrée de menu À PART (`#/import`), jamais dans le Planning
+(demande du 26/11/2026 : « tu mélanges deux fonctionnalités »). Une fonction =
+une entrée de menu.
 
 PDF (8 Mo, `%PDF-` vérifié, JAMAIS gardé) + consignes → bloc `document` à
 Claude (modèle principal, effort `medium`) → `proposer_import`. ⚠️ Les outils
@@ -195,6 +199,15 @@ Demande du propriétaire : « mets en mémoire pour ne jamais reproduire ça ».
    simule l'encoche, hachure la barre d'état et ÉCHOUE si un texte passe
    dessous ou si l'entrée est décentrée. Chromium n'a pas d'encoche : sans cette
    simulation, ces défauts ne se voient pas en capture.
+
+## Onglets d'un écran (`ui/Tabs.tsx`, 26/11/2026)
+
+Un écran découpé en parties (Paramètres) a une barre d'ONGLETS : un clic
+n'affiche QUE la partie choisie, l'onglet actif est en surbrillance (bleu).
+Chaque onglet est un lien `#/ecran/partie` (retour arrière, liens directs comme
+`#/parametres/interfast`) ; `activeTab()` retombe sur le premier. ⚠️ À
+réutiliser tel quel pour tout autre écran à parties — pas de longue page qui
+défile avec des ancres.
 
 ## En-tête
 

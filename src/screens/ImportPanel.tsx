@@ -25,7 +25,6 @@ import {
   Trash,
   UploadSimple,
   Warning,
-  X,
   XCircle,
   ClockCounterClockwise,
   Info,
@@ -81,7 +80,7 @@ const readAsDataUrl = (f: File) =>
 /** Lignes cochées d'office : importables et pas déjà dans Interfast. */
 const defaultPick = (v: ImportView) => new Set((v.proposal?.lignes ?? []).flatMap((l, i) => (l.importable && !l.doublon ? [i] : [])));
 
-export function ImportPanel({ assistant, onImported, onClose }: { assistant: boolean; onImported(): void; onClose(): void }) {
+export function ImportPanel({ assistant, onImported }: { assistant: boolean; onImported?(): void }) {
   const [file, setFile] = useState<File | null>(null);
   const [rules, setRules] = useState(() => ls.get(LAST_RULES) ?? '');
   const [cur, setCur] = useState<ImportView | null>(null);
@@ -112,7 +111,7 @@ export function ImportPanel({ assistant, onImported, onClose }: { assistant: boo
             return r.import;
           });
           if (r.import.state !== 'preparation' && r.import.state !== 'import_en_cours') {
-            if (['importee', 'partielle'].includes(r.import.state)) onImported();
+            if (['importee', 'partielle'].includes(r.import.state)) onImported?.();
             void loadHistory();
             return;
           }
@@ -226,11 +225,8 @@ export function ImportPanel({ assistant, onImported, onClose }: { assistant: boo
     <section className="card importer" aria-label="Importer un planning fournisseur">
       <div className="importer__head">
         <h2>
-          <FilePdf size={22} /> Importer un planning fournisseur
+          <FilePdf size={22} /> {cur ? 'Proposition d’import' : 'Nouveau planning fournisseur'}
         </h2>
-        <button className="icon-btn icon-btn--sm" onClick={onClose} aria-label="Fermer l’import" title="Fermer">
-          <X size={18} />
-        </button>
       </div>
 
       {error && <p className="alert alert--error">{error}</p>}

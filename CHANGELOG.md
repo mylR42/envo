@@ -1,5 +1,10 @@
 # Journal des versions
 
+## 0.9.1 — 26/11/2026
+
+- **Paramètres en onglets** : un clic sur Entreprise, Interfast, Équipe, Mémoire, Siri ou Sécurité n’affiche QUE cette partie ; l’onglet choisi est en surbrillance ; le retour arrière revient à l’onglet précédent.
+- **Import PDF** devient une entrée de menu à part : le Planning ne montre plus que le planning.
+
 ## 0.9.0 — 26/11/2026
 
 Plusieurs utilisateurs par entreprise.

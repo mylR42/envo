@@ -450,6 +450,15 @@ code {
   font-size: 0.9rem;
   text-decoration: none;
 }
+.jump a.is-on {
+  background: var(--blue);
+  color: #fff;
+  box-shadow: 0 2px 8px rgb(37 99 235 / 30%);
+}
+.jump a:focus-visible {
+  outline: 3px solid var(--amber);
+  outline-offset: 2px;
+}
 .page__head--row {
   display: flex;
   flex-wrap: wrap;
@@ -593,7 +602,7 @@ code {
   backdrop-filter: blur(10px);
   border-top: 1px solid var(--line);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   z-index: 20;
 }
 .tabbar a {
@@ -2444,15 +2453,9 @@ code {
   .kpis {
     grid-template-columns: repeat(4, 1fr);
   }
-  .page--settings {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    align-items: start;
-  }
-  .page--settings > .page__head,
-  .page--settings > .jump,
-  .page--settings > #s-memoire {
-    grid-column: 1 / -1;
+  /* Une partie à la fois (onglets) : une colonne, d'une largeur qui se lit. */
+  .page--settings > .section {
+    max-width: 920px;
   }
   .chat {
     height: 100dvh;
@@ -2695,28 +2698,11 @@ code {
   color: var(--muted);
   cursor: default;
 }
-.import-cta {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  border: 1px dashed var(--blue);
-  cursor: pointer;
-}
-.import-cta > span {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-.import-cta > svg:first-child {
-  color: var(--blue);
-  flex: none;
-}
 
 /* ---------- Import d'un planning fournisseur ---------- */
+.page--import .importer {
+  max-width: 920px;
+}
 .importer {
   display: flex;
   flex-direction: column;

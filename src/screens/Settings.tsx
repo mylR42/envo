@@ -8,6 +8,7 @@
  */
 import { AndroidLogo, AppleLogo, Brain, Buildings, CheckCircle, Copy, FloppyDisk, Gear, Key, LockKey, Microphone, PencilSimple, Plugs, Plus, SignOut, Trash, UserCircle, UsersThree, Warning } from '@phosphor-icons/react';
 import { Team } from './Team';
+import { activeTab, Tabs, type TabDef } from '../ui/Tabs';
 import { PageHead } from '../ui/PageHead';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { api, type User } from '../lib/api';
@@ -39,10 +40,17 @@ const KIND_LABEL: Record<string, string> = { decision: 'Décision', preference: 
 
 const nstr = (v: number | null) => (v === null || v === undefined ? '' : String(v));
 
-function Section({ id, icon, title, intro, children, open }: { id: string; icon: ReactNode; title: string; intro?: string; children: ReactNode; open?: boolean }) {
-  useEffect(() => {
-    if (open) document.getElementById(`s-${id}`)?.scrollIntoView({ block: 'start' });
-  }, [id, open]);
+/** Une partie = un onglet : seule la partie choisie est affichée. */
+const SETTINGS_TABS: readonly TabDef[] = [
+  { id: 'entreprise', label: 'Entreprise', icon: Buildings },
+  { id: 'interfast', label: 'Interfast', icon: Plugs },
+  { id: 'equipe', label: 'Équipe', icon: UsersThree },
+  { id: 'memoire', label: 'Mémoire', icon: Brain },
+  { id: 'voix', label: 'Siri', icon: Microphone },
+  { id: 'securite', label: 'Sécurité', icon: LockKey },
+];
+
+function Section({ id, icon, title, intro, children }: { id: string; icon: ReactNode; title: string; intro?: string; children: ReactNode; open?: boolean }) {
   return (
     <section className="card section" id={`s-${id}`}>
       <h2>
@@ -65,6 +73,7 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
   const [test, setTest] = useState<{ ok: boolean; error?: string; tools?: { name: string; description: string; write: boolean }[] } | null>(null);
   /** Réglages de l'entreprise et Interfast : administrateurs seulement ; un membre les voit. */
   const isAdmin = user.role === 'admin';
+  const tab = activeTab(SETTINGS_TABS, section);
 
   const load = (d: SettingsData) => {
     setS(d);
@@ -127,22 +136,10 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
       <PageHead icon={Gear} title="Paramètres">
         Ce que l’assistante sait de vous et de votre entreprise, et la connexion à Interfast.
       </PageHead>
-      <nav className="jump" aria-label="Sections">
-        {[
-          { id: 'entreprise', label: 'Entreprise', I: Buildings },
-          { id: 'interfast', label: 'Interfast', I: Plugs },
-          { id: 'equipe', label: 'Équipe', I: UsersThree },
-          { id: 'memoire', label: 'Mémoire', I: Brain },
-          { id: 'voix', label: 'Siri', I: Microphone },
-          { id: 'securite', label: 'Sécurité', I: LockKey },
-        ].map(({ id, label, I }) => (
-          <a key={id} href={`#/parametres/${id}`} onClick={(e) => (e.preventDefault(), document.getElementById(`s-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }))}>
-            <I size={18} /> {label}
-          </a>
-        ))}
-      </nav>
+      <Tabs tabs={SETTINGS_TABS} active={tab} base="/parametres" label="Parties des paramètres" />
 
-      <Section id="entreprise" open={section === 'entreprise'} icon={<Buildings size={20} weight="light" />} title="Mon entreprise et mes habitudes" intro="L’assistante s’en sert pour chiffrer sans vous reposer les mêmes questions.">
+      {tab === 'entreprise' && (
+      <Section id="entreprise" icon={<Buildings size={20} weight="light" />} title="Mon entreprise et mes habitudes" intro="L’assistante s’en sert pour chiffrer sans vous reposer les mêmes questions.">
         <form
           className="form-grid"
           onSubmit={(e: FormEvent) => {
@@ -172,10 +169,11 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
           </button>
         </form>
       </Section>
+      )}
 
+      {tab === 'interfast' && (
       <Section
         id="interfast"
-        open={section === 'interfast'}
         icon={<Plugs size={20} weight="light" />}
         title="Connexion à Interfast"
         intro="Dans Interfast : profil → Clés API → « Ajouter une clé », puis copiez le lien du serveur MCP affiché sous la clé (offre Business). Une clé par entreprise."
@@ -246,15 +244,17 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
           </div>
         )}
       </Section>
+      )}
 
-      <Team user={user} open={section === 'equipe'} onLeft={onLogout} />
+      {tab === 'equipe' && <Team user={user} onLeft={onLogout} />}
 
-      <Memory open={section === 'memoire'} />
+      {tab === 'memoire' && <Memory />}
 
-      <Voice open={section === 'voix'} />
+      {tab === 'voix' && <Voice />}
 
-      <Security mail={mail} open={section === 'securite'} />
+      {tab === 'securite' && <Security mail={mail} />}
 
+      {tab === 'securite' && (
       <section className="card section">
         <h2>
           <UserCircle size={20} weight="light" /> Compte
@@ -264,11 +264,12 @@ export function Settings({ user, mail, section, onUser, onLogout }: { user: User
         </button>
         <p className="fine">Envo v{__ENVO_VERSION__} · {user.email}</p>
       </section>
+      )}
     </div>
   );
 }
 
-function Memory({ open }: { open: boolean }) {
+function Memory() {
   const [rex, setRex] = useState<Rex[] | null>(null);
   const [adding, setAdding] = useState('');
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null);
@@ -292,7 +293,7 @@ function Memory({ open }: { open: boolean }) {
   };
 
   return (
-    <Section id="memoire" open={open} icon={<Brain size={20} weight="light" />} title="Mémoire de l’assistante" intro="Partagée par toute l’équipe. Ce qu’elle a retenu des séances (tarifs, habitudes, décisions) et vos avis. Elle s’en sert à chaque nouveau devis. Corrigez ou supprimez ce qui n’est plus vrai.">
+    <Section id="memoire" icon={<Brain size={20} weight="light" />} title="Mémoire de l’assistante" intro="Partagée par toute l’équipe. Ce qu’elle a retenu des séances (tarifs, habitudes, décisions) et vos avis. Elle s’en sert à chaque nouveau devis. Corrigez ou supprimez ce qui n’est plus vrai.">
       <form className="row" onSubmit={add}>
         <input className="grow" value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="Ajouter une règle : « Je facture le déplacement 35 € HT au-delà de 20 km »" aria-label="Nouvelle règle" />
         <button className="btn btn--primary" disabled={!adding.trim()}>
@@ -354,13 +355,13 @@ function Memory({ open }: { open: boolean }) {
   );
 }
 
-function Security({ mail, open }: { mail: boolean; open: boolean }) {
+function Security({ mail }: { mail: boolean }) {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   return (
-    <Section id="securite" open={open} icon={<LockKey size={20} weight="light" />} title="Sécurité du compte" intro="Chaque connexion demande votre mot de passe puis un code reçu par e-mail. Changer le mot de passe déconnecte vos autres appareils.">
+    <Section id="securite" icon={<LockKey size={20} weight="light" />} title="Sécurité du compte" intro="Chaque connexion demande votre mot de passe puis un code reçu par e-mail. Changer le mot de passe déconnecte vos autres appareils.">
       <form
         className="form-grid"
         onSubmit={async (e) => {
@@ -434,7 +435,7 @@ interface VoiceToken {
  * phrase dictée à /api/voix avec une CLÉ VOCALE et lit la réponse. La clé n'est
  * montrée qu'UNE fois (seul son SHA-256 est gardé) et se révoque ici.
  */
-function Voice({ open }: { open: boolean }) {
+function Voice() {
   const [tokens, setTokens] = useState<VoiceToken[] | null>(null);
   const [fresh, setFresh] = useState<{ token: string; url: string } | null>(null);
   const [error, setError] = useState('');
@@ -456,7 +457,7 @@ function Voice({ open }: { open: boolean }) {
   };
 
   return (
-    <Section id="voix" open={open} icon={<Microphone size={20} weight="light" />} title="Siri et assistant vocal" intro="Parlez à Envo sans ouvrir l’appli : « Dis Siri, Envo », puis dites ce que vous voulez. La conversation continue d’une fois sur l’autre ; vous la retrouvez dans AssistDevis.">
+    <Section id="voix" icon={<Microphone size={20} weight="light" />} title="Siri et assistant vocal" intro="Parlez à Envo sans ouvrir l’appli : « Dis Siri, Envo », puis dites ce que vous voulez. La conversation continue d’une fois sur l’autre ; vous la retrouvez dans AssistDevis.">
       <h3 className="subhead">
         <Key size={18} /> 1. Votre clé vocale
       </h3>

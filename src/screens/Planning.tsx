@@ -1,14 +1,13 @@
 /**
- * Planning (0.8.0) — la semaine lue dans Interfast, par jour et par intervenant,
- * et l'IMPORT d'un planning fournisseur en PDF.
+ * Planning (0.8.0) — la semaine lue dans Interfast, par jour et par intervenant.
+ * L'import d'un planning fournisseur en PDF est un AUTRE écran (menu « Import
+ * PDF », screens/Import.tsx) : deux fonctions, deux entrées de menu.
  *
  * - Lecture SEULE ici (server/planning.ts) : affiché tout de suite depuis la
  *   mémoire du serveur ou la copie de l'appareil, relu derrière s'il a plus de
  *   10 minutes. Rien d'inventé : ce qu'Interfast ne dit pas n'est pas montré.
  * - Modifier ou planifier passe par l'assistante (séance AssistDevis) : toute
  *   écriture dans Interfast y est validée par l'artisan.
- * - Import PDF (`ImportPanel`) : consignes → PROPOSITION (rien n'est écrit) →
- *   lignes cochées → « Valider l'import ».
  */
 import {
   ArrowClockwise,
@@ -17,7 +16,6 @@ import {
   CaretLeft,
   CaretRight,
   Clock,
-  FilePdf,
   MapPin,
   PencilSimple,
   Truck,
@@ -28,15 +26,12 @@ import {
   HardHat,
   DotsThreeCircle,
   Info,
-  FileArrowUp,
 } from '@phosphor-icons/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { go } from '../App';
 import { api, type PlanEvent, type PlanningState, type User } from '../lib/api';
 import { useOffline } from '../lib/offline';
 import { addDays, dayLabel, mondayOf, todayIso, weekLabel } from '../lib/planning';
 import { PageHead } from '../ui/PageHead';
-import { ImportPanel } from './ImportPanel';
 
 const TYPE: Record<PlanEvent['type'], { label: string; icon: typeof Wrench }> = {
   intervention: { label: 'Intervention', icon: Wrench },
@@ -63,7 +58,7 @@ const store = {
   },
 };
 
-export function Planning({ user, assistant, importOpen, onStart }: { user: User; assistant: boolean; importOpen: boolean; onStart(o: { text?: string }): void }) {
+export function Planning({ user, assistant, onStart }: { user: User; assistant: boolean; onStart(o: { text?: string }): void }) {
   const [du, setDu] = useState(() => mondayOf(todayIso()));
   const key = `envo.planning.${user.id}.${du}`;
   const [st, setSt] = useState<PlanningState | null>(() => store.get<PlanningState>(key));
@@ -152,9 +147,6 @@ export function Planning({ user, assistant, importOpen, onStart }: { user: User;
         title="Planning"
         actions={
           <div className="quick">
-            <button className="btn btn--outline" onClick={() => go(importOpen ? '/planning' : '/planning/import')} disabled={!live} aria-expanded={importOpen}>
-              <FilePdf size={20} /> Importer un PDF
-            </button>
             <button className="btn btn--primary" onClick={() => plan()} disabled={!live}>
               <CalendarPlus size={20} /> Planifier
             </button>
@@ -163,8 +155,6 @@ export function Planning({ user, assistant, importOpen, onStart }: { user: User;
       >
         Lu dans Interfast. Pour planifier ou déplacer, l’assistante prépare, vous validez.
       </PageHead>
-
-      {importOpen && <ImportPanel assistant={assistant} onImported={() => read(du)} onClose={() => go('/planning')} />}
 
       {st && !st.configured && (
         <a className="alert alert--info alert--link" href="#/parametres/interfast">
@@ -293,16 +283,6 @@ export function Planning({ user, assistant, importOpen, onStart }: { user: User;
         </details>
       )}
 
-      {!importOpen && live && st?.configured && (
-        <button className="card import-cta" onClick={() => go('/planning/import')}>
-          <FileArrowUp size={24} weight="light" />
-          <span>
-            <strong>Un planning fournisseur en PDF ?</strong>
-            <span className="muted">Donnez vos consignes, Envo prépare l’import, vous validez ligne à ligne.</span>
-          </span>
-          <CaretRight size={18} />
-        </button>
-      )}
     </div>
   );
 }
