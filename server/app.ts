@@ -34,6 +34,7 @@ import { collectOverview, OVERVIEW_TTL_MS, type Overview, type RecipeCall } from
 import { addDays, collectPlanning, mondayOf, type Planning } from './planning';
 import { isPdf, PDF_MAX_BYTES, preparerImport, type ImportProposal } from './planimport';
 import { gmailClient, MailError, type MailClient } from './gmail';
+import { triage, type Triage } from './mailtriage';
 
 /** Corps d'un envoi de PDF : 8 Mo en base64 (× 4/3) plus les consignes. */
 const IMPORT_BODY_MAX = 12 * 1024 * 1024;
@@ -501,7 +502,73 @@ export function createApp(deps: Deps) {
     const u = c.get('user');
     if (!u) return unauthorized(c);
     await db.query('DELETE FROM mail_accounts WHERE user_id = $1', [u.id]);
+    triages.delete(u.id);
     return c.json(mailView(null));
+  });
+
+  /*
+   * Écran « E-mails » : la boîte lue À LA DEMANDE (rien en base), et l'analyse
+   * par l'IA gardée 15 min en MÉMOIRE par personne.
+   */
+  const triages = new Map<string, { at: number; email: string; data: Triage; messages: unknown[] }>();
+  const TRIAGE_TTL_MS = 15 * 60_000;
+  const mailFail = (c: Context, e: unknown) => c.json({ error: e instanceof MailError ? e.message : 'Gmail injoignable' }, 502);
+
+  app.get('/api/mail/messages', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const m = await mailFor(u);
+    if (!m) return c.json({ error: 'Gmail n’est pas branché : Paramètres → Gmail' }, 400);
+    if (overRate(`mailread:${u.id}`, 240, 3600_000)) return c.json({ error: 'trop de lectures en une heure, patientez' }, 429);
+    try {
+      const messages = await m.search({ requete: str(c.req.query('q'), 200), non_lus: c.req.query('non_lus') === '1', max: Number(c.req.query('max')) || 25 });
+      return c.json({ messages });
+    } catch (e) {
+      return mailFail(c, e);
+    }
+  });
+
+  app.get('/api/mail/messages/:id', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const m = await mailFor(u);
+    if (!m) return c.json({ error: 'Gmail n’est pas branché : Paramètres → Gmail' }, 400);
+    if (overRate(`mailread:${u.id}`, 240, 3600_000)) return c.json({ error: 'trop de lectures en une heure, patientez' }, 429);
+    try {
+      return c.json({ message: await m.read(c.req.param('id')) });
+    } catch (e) {
+      return mailFail(c, e);
+    }
+  });
+
+  app.get('/api/mail/analyse', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const r = await mailRow(u.id);
+    const t = triages.get(u.id);
+    const ok = t && r && t.email === r.email && now().getTime() - t.at < TRIAGE_TTL_MS;
+    return c.json({ analyse: ok ? t.data : null, at: ok ? new Date(t.at) : null, messages: ok ? t.messages : [] });
+  });
+
+  /** L'IA trie les 25 derniers e-mails de la boîte de réception (expéditeur, objet, extrait). */
+  app.post('/api/mail/analyse', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    if (!llm || !cfg.anthropic) return c.json({ error: 'assistante non configurée sur le serveur (clé Anthropic absente)' }, 503);
+    const m = await mailFor(u);
+    if (!m) return c.json({ error: 'Gmail n’est pas branché : Paramètres → Gmail' }, 400);
+    if (overRate(`mailtri:${u.id}`, 20, 3600_000)) return c.json({ error: 'trop d’analyses en une heure, patientez' }, 429);
+    try {
+      const mails = await m.search({ depuis_jours: 14, requete: 'in:inbox', max: 25 });
+      const s = await loadSettings(u);
+      const data = await triage({ llm, model: cfg.anthropic.overviewModel, today: now().toISOString().slice(0, 10), company: s.company, mails });
+      triages.set(u.id, { at: now().getTime(), email: m.email, data, messages: mails });
+      return c.json({ analyse: data, at: now(), messages: mails });
+    } catch (e) {
+      if (e instanceof MailError) return mailFail(c, e);
+      console.error('tri des e-mails :', (e as Error).message);
+      return c.json({ error: 'L’analyse n’a pas abouti. Réessayez dans un instant.' }, 502);
+    }
   });
 
   /* ---------- Équipe : plusieurs utilisateurs par entreprise ---------- */

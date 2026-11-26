@@ -23,3 +23,18 @@ describe('Gmail : outils purs', () => {
     expect(() => recipients(Array.from({ length: 11 }, (_, i) => `a${i}@b.fr`).join(','))).toThrow(/Dix/);
   });
 });
+
+import { sanitizeTriage } from '../server/mailtriage';
+
+describe('tri des e-mails par l’IA (pur)', () => {
+  it('écarte les identifiants inventés et les doublons, catégorie inconnue → info', () => {
+    const t = sanitizeTriage(
+      { point: 'Une réponse attendue.', items: [{ id: '41', categorie: 'a_repondre', resume: 'r', action: 'a' }, { id: '41', categorie: 'urgent', resume: 'bis', action: '' }, { id: '999', categorie: 'urgent', resume: 'inventé', action: '' }, { id: '40', categorie: 'bizarre', resume: 'x', action: '' }] },
+      ['40', '41'],
+    );
+    expect(t.items.map((i) => [i.id, i.categorie])).toEqual([
+      ['41', 'a_repondre'],
+      ['40', 'info'],
+    ]);
+  });
+});

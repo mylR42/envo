@@ -157,6 +157,13 @@ et dans la démo : mot de passe « abcd efgh ijkl mnop »).
   e-mail. Aucun e-mail n'est gardé en base.
 - Une connexion IMAP par opération ; 30 s au plus ; erreurs traduites
   (`explain()` : mot de passe refusé, Gmail injoignable).
+- **Écran E-mails** (`src/screens/Emails.tsx`, 0.12.0, menu) : `GET
+  /api/mail/messages` (liste, recherche), `GET /api/mail/messages/:id`, et
+  l'ANALYSE `POST /api/mail/analyse` (`server/mailtriage.ts` : un appel, modèle
+  du tableau de bord, SEUL outil `publier_tri`, e-mails balisés
+  `<emails_non_fiables>`, identifiants inventés écartés par
+  `sanitizeTriage`), gardée 15 min en MÉMOIRE. ⚠️ Aucun e-mail en base ni dans
+  la copie hors ligne (`READS` n'a que `/api/mail`).
 
 ## REX (retours d'expérience)
 

@@ -1,5 +1,13 @@
 # Journal des versions
 
+## 0.12.0 — 26/11/2026
+
+Écran **E-mails** dans le menu.
+- **Analyser** : l’IA trie vos e-mails récents (urgent, à répondre, devis, facture, planning, info, publicité), une ligne et l’action conseillée pour chacun, et « le point e-mails » à lire ou à **écouter**. Une demande d’argent ou de RIB est signalée comme possible arnaque.
+- La liste : non lus, boîte de réception, recherche Gmail. Un e-mail s’ouvre sur place : le lire, l’**écouter**, ou « Traiter avec l’assistante » (réponse, devis, rendez-vous ; l’envoi attend « Valider »).
+- **Dicter** : la même chose à la voix ; « Dis Siri, Envo » sans ouvrir l’appli.
+- Rien n’est gardé : ni en base, ni sur l’appareil. Le tri reste 15 min en mémoire.
+
 ## 0.11.0 — 26/11/2026
 
 Gmail branché (IMAP/SMTP, mot de passe d’application).

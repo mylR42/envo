@@ -226,6 +226,23 @@ const llm: Llm = {
       await new Promise((r) => setTimeout(r, 1200));
       return reply(p, PLANNING[step] ?? PLANNING[1]!);
     }
+    if (sys.includes('Tu tries la boîte e-mail')) {
+      await new Promise((r) => setTimeout(r, 1500));
+      return reply(p, [
+        {
+          type: 'tool_use',
+          id: 'tri_1',
+          name: 'publier_tri',
+          input: {
+            point: 'Mme Leroy attend votre réponse pour un passage jeudi au sujet de sa pompe à chaleur. Cedeo confirme votre livraison de mercredi. Rien d’autre d’urgent.',
+            items: [
+              { id: '41', categorie: 'a_repondre', resume: 'Mme Leroy demande si vous passez jeudi (devis pompe à chaleur).', action: 'Répondre pour confirmer jeudi 14 h' },
+              { id: '40', categorie: 'planning', resume: 'Cedeo confirme la livraison prévue mercredi.', action: 'Rien à faire, déjà au planning' },
+            ],
+          },
+        },
+      ]);
+    }
     if (sys.includes('import d\'un planning de fournisseur')) {
       await new Promise((r) => setTimeout(r, 2000));
       return reply(p, IMPORT[step] ?? IMPORT[1]!);
