@@ -2964,3 +2964,106 @@ code {
     padding-top: 2.1rem;
   }
 }
+
+/* ================== Équipe (0.9.0) ================== */
+.team {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+.team li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-width: 0;
+}
+.team__avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--blue-soft);
+  color: var(--navy);
+}
+.team__avatar--wait {
+  background: var(--amber-soft);
+  color: #8a5300;
+}
+.team__who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.team__who > * {
+  overflow-wrap: anywhere;
+}
+.team__who .muted {
+  font-size: 0.85rem;
+}
+.team__role,
+.team__invite select {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  padding: 0.4rem 0.5rem;
+  min-height: 40px;
+}
+.team__role {
+  flex: none;
+  max-width: 9.5rem;
+}
+.team__sub {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 1rem 0 0;
+  font-size: 0.95rem;
+}
+.team__invite {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+  margin-top: 1rem;
+}
+.team__invite .grow {
+  min-width: 12rem;
+}
+.team__invite select {
+  min-height: 46px;
+}
+/* Téléphone : le rôle passe sous le nom, le bouton reste à droite. */
+@media (max-width: 480px) {
+  .team li {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+  }
+  .team__role {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+  }
+  .team li > .icon-btn {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+/* Page « Rejoindre l'équipe » */
+.join__lead {
+  margin: 0;
+}
+.join__lead strong {
+  color: var(--navy);
+}
+.team__invite .field {
+  margin-bottom: 0;
+}

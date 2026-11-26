@@ -35,3 +35,19 @@ export function passwordChangedMail(p: { at: Date }) {
     html: shell('Mot de passe modifié', `<p>Le mot de passe de votre compte Envo a été modifié le ${escapeHtml(when)}.</p><p>Si ce n'est pas vous, utilisez « Mot de passe oublié » tout de suite.</p>`, 'Votre mot de passe a été modifié'),
   };
 }
+
+export function inviteMail(p: { link: string; company: string; inviter: string; days: number }) {
+  const who = p.inviter || 'Un collègue';
+  const where = p.company ? `l’équipe ${p.company}` : 'son équipe';
+  return {
+    subject: `${who} vous invite dans Envo`,
+    text: `${who} vous invite à rejoindre ${where} dans Envo, l’assistant administratif de l’entreprise.\n\nPour accepter, ouvrez ce lien (valable ${p.days} jours) :\n${p.link}\n\nEnvo ne vous demandera jamais votre mot de passe par e-mail.`,
+    html: shell(
+      `${who} vous invite dans Envo`,
+      `<p style="margin:0 0 16px">Rejoignez ${escapeHtml(where)} : devis, planning et tableau de bord, reliés au même Interfast.</p>
+<p style="margin:0 0 16px"><a href="${escapeHtml(p.link)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:10px">Rejoindre l’équipe</a></p>
+<p style="margin:0;font-size:13px;color:#64748b">Lien valable ${p.days} jours, utilisable une fois.</p>`,
+      `Invitation de ${who}`,
+    ),
+  };
+}

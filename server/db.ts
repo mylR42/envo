@@ -187,6 +187,43 @@ export const SCHEMA = [
      decided_at timestamptz
    )`,
   `CREATE INDEX IF NOT EXISTS imports_user ON imports(user_id, created_at DESC)`,
+  // Plusieurs utilisateurs par entreprise (26/11/2026). L'ENTREPRISE porte la connexion Interfast, les réglages
+  // et la mémoire (REX) ; chaque personne garde ses séances, ses imports, ses clés vocales.
+  // Migration : chaque compte existant devient administrateur de sa propre entreprise (`founder`).
+  `CREATE TABLE IF NOT EXISTS companies (
+     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+     founder uuid UNIQUE,
+     created_at timestamptz NOT NULL DEFAULT now()
+   )`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS company_id uuid REFERENCES companies(id) ON DELETE SET NULL`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'admin'`,
+  // Lecture des réponses à voix haute : un goût PERSONNEL (il était dans les réglages, désormais partagés).
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS voice_reply boolean`,
+  `ALTER TABLE settings ADD COLUMN IF NOT EXISTS company_id uuid UNIQUE REFERENCES companies(id) ON DELETE CASCADE`,
+  // Les réglages sont ceux de l'ENTREPRISE (company_id unique) ; user_id ne dit plus que qui les a créés.
+  `ALTER TABLE settings DROP CONSTRAINT IF EXISTS settings_pkey`,
+  `ALTER TABLE settings ALTER COLUMN user_id DROP NOT NULL`,
+  `ALTER TABLE rex ADD COLUMN IF NOT EXISTS company_id uuid REFERENCES companies(id) ON DELETE CASCADE`,
+  `INSERT INTO companies (founder) SELECT id FROM users WHERE company_id IS NULL ON CONFLICT (founder) DO NOTHING`,
+  `UPDATE users u SET company_id = c.id FROM companies c WHERE c.founder = u.id AND u.company_id IS NULL`,
+  `UPDATE users u SET voice_reply = s.voice_reply FROM settings s WHERE s.user_id = u.id AND u.voice_reply IS NULL`,
+  `UPDATE settings s SET company_id = u.company_id FROM users u WHERE u.id = s.user_id AND s.company_id IS NULL`,
+  `UPDATE rex r SET company_id = u.company_id FROM users u WHERE u.id = r.user_id AND r.company_id IS NULL`,
+  `CREATE INDEX IF NOT EXISTS rex_company ON rex(company_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS users_company ON users(company_id)`,
+  // Invitation dans une équipe : lien envoyé par e-mail, 7 jours, une fois. Seul le SHA-256 du jeton est gardé.
+  `CREATE TABLE IF NOT EXISTS invitations (
+     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+     company_id uuid NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+     email text NOT NULL,
+     role text NOT NULL,
+     token_hash text NOT NULL UNIQUE,
+     invited_by uuid REFERENCES users(id) ON DELETE SET NULL,
+     created_at timestamptz NOT NULL DEFAULT now(),
+     expires_at timestamptz NOT NULL,
+     accepted_at timestamptz
+   )`,
+  `CREATE INDEX IF NOT EXISTS invitations_company ON invitations(company_id, created_at DESC)`,
 ];
 
 export async function applySchema(db: Db): Promise<void> {

@@ -260,11 +260,18 @@ const interfast = fakeInterfast();
 // En démo seulement : un outil d'écriture de planning, pour l'import du PDF fournisseur.
 (interfast.tools as unknown[]).push({ name: 'create_planning_event', description: 'Crée un événement dans le planning', inputSchema: { type: 'object', properties: { customer_id: { type: 'string' }, date: { type: 'string' }, start: { type: 'string' }, end: { type: 'string' }, title: { type: 'string' }, employee: { type: 'string' } } } });
 let lastCode = '';
+let lastInvite = '';
 const cfg = loadConfig({ PUBLIC_URL: ORIGIN, ANTHROPIC_API_KEY: 'demo', ENVO_COMMIT: 'demo' });
 const api = createApp({
   cfg,
   db,
-  mailer: { enabled: true, send: async (m) => void (lastCode = /(\d{6})/.exec(m.subject)?.[1] ?? lastCode) },
+  mailer: {
+    enabled: true,
+    send: async (m) => {
+      lastCode = /(\d{6})/.exec(m.subject)?.[1] ?? lastCode;
+      lastInvite = /(https?:\S+#\/rejoindre\/\S+)/.exec(m.text)?.[1] ?? lastInvite;
+    },
+  },
   llm,
   mcpFactory: (url, key) => mcpClient({ url, apiKey: key, fetchFn: interfast.fetchFn }),
 });
@@ -298,7 +305,7 @@ web.get('/demo', async (c) => {
   c.header('Set-Cookie', `${cookie}; Path=/; HttpOnly; SameSite=Lax`);
   return c.redirect('/#/');
 });
-web.get('/demo/code', (c) => c.text(lastCode ? `Dernier code envoyé : ${lastCode}` : 'Aucun code envoyé pour l’instant.'));
+web.get('/demo/code', (c) => c.text(`${lastCode ? `Dernier code envoyé : ${lastCode}` : 'Aucun code envoyé pour l’instant.'}${lastInvite ? `\nDernière invitation : ${lastInvite}` : ''}`));
 // Derrière l'aperçu de l'app Claude, le navigateur annonce une autre origine : en démo seulement, on la remplace.
 web.all('/api/*', (c) => {
   const h = new Headers(c.req.raw.headers);

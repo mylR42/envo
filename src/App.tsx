@@ -14,16 +14,18 @@ import { Dashboard } from './screens/Dashboard';
 import { AssistDevis } from './screens/AssistDevis';
 import { Settings } from './screens/Settings';
 import { Planning } from './screens/Planning';
+import { JoinScreen, JOIN_KEY } from './screens/JoinScreen';
 import { Brand, Logo } from './ui/Brand';
 import { clearOfflineData, rememberAccount, sinceLabel, useOffline } from './lib/offline';
 
-export type Route = { screen: 'home' } | { screen: 'devis'; id?: string; start?: string; voice?: boolean } | { screen: 'planning'; import?: boolean } | { screen: 'settings'; section?: string };
+export type Route = { screen: 'home' } | { screen: 'devis'; id?: string; start?: string; voice?: boolean } | { screen: 'planning'; import?: boolean } | { screen: 'join'; token: string } | { screen: 'settings'; section?: string };
 
 export function parseRoute(hash: string): Route {
   const h = hash.replace(/^#\/?/, '');
   const [a, b] = h.split('/');
   // « Parler à Envo » (raccourci de l'icône, Assistant Google) : #/devis/voix ouvre une séance en mains libres.
   if (a === 'devis') return { screen: 'devis', id: b && /^[0-9a-f-]{36}$/.test(b) ? b : undefined, voice: b === 'voix' };
+  if (a === 'rejoindre' && b && /^[A-Za-z0-9_-]{20,200}$/.test(b)) return { screen: 'join', token: b };
   if (a === 'planning') return { screen: 'planning', import: b === 'import' };
   if (a === 'parametres') return { screen: 'settings', section: b };
   return { screen: 'home' };
@@ -83,7 +85,24 @@ export function App() {
   }, [route, me?.user]);
 
   if (!me) return <div className="splash" aria-busy="true" />;
-  if (!me.user) return <AuthScreen onSignedIn={(user) => setMe({ ...me, user })} />;
+  // Lien d'invitation : la page s'affiche connecté ou non.
+  if (route.screen === 'join') return <JoinScreen token={route.token} user={me.user} onJoined={(user) => setMe({ ...me, user })} onLogout={logout} />;
+  if (!me.user)
+    return (
+      <AuthScreen
+        onSignedIn={(user) => {
+          setMe({ ...me, user });
+          // Arrivé par un lien d'invitation avec un compte existant : retour à l'invitation.
+          let back: string | null = null;
+          try {
+            back = sessionStorage.getItem(JOIN_KEY);
+          } catch {
+            /* rien */
+          }
+          if (back) go(`/rejoindre/${back}`);
+        }}
+      />
+    );
 
   const startSession = (opts: { text?: string; voice?: boolean } = {}) => {
     setPendingStart(opts);

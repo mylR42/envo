@@ -21,7 +21,7 @@ import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages
 import type { Config } from './config';
 import type { Db } from './db';
 import { decrypt, encrypt, hint } from './crypto';
-import { codeMail, passwordChangedMail } from './emails';
+import { codeMail, inviteMail, passwordChangedMail } from './emails';
 import type { Mailer } from './mail';
 import { isWriteTool, McpError, type McpClient, type McpTool } from './mcp';
 import { DUMMY_HASH, PASSWORD_MIN, deviceLabel, hashPassword, isEmail, isUuid, newOtp, newToken, normalizeEmail, sha256, verifyPassword } from './security';
@@ -47,11 +47,20 @@ export interface Deps {
   now?: () => Date;
 }
 
+export type Role = 'admin' | 'membre';
+export const ROLES: Role[] = ['admin', 'membre'];
+
 export interface User {
   id: string;
   email: string;
   name: string;
+  /** L'entreprise : connexion Interfast, réglages et mémoire PARTAGÉS par ses membres. */
+  company: string;
+  /** `admin` : réglages, Interfast, équipe. `membre` : tout le reste. */
+  role: Role;
 }
+
+const USER_COLS = 'u.id, u.email, u.name, u.company_id AS company, u.role';
 
 type Env = { Variables: { user: User | null } };
 
@@ -141,6 +150,16 @@ export function createApp(deps: Deps) {
   };
   const clientIp = (c: Context) => c.req.header('x-real-ip') ?? 'local';
 
+  /* ---------- Entreprises ---------- */
+  /** Une entreprise neuve, dont `userId` est l'administrateur (inscription, départ d'une équipe). */
+  async function newCompany(userId: string): Promise<string> {
+    const id = (await db.query<{ id: string }>('INSERT INTO companies DEFAULT VALUES RETURNING id'))[0]!.id;
+    await db.query('UPDATE users SET company_id = $2, role = $3 WHERE id = $1', [userId, id, 'admin']);
+    await db.query('INSERT INTO settings (user_id, company_id) VALUES ($1, $2) ON CONFLICT (company_id) DO NOTHING', [userId, id]);
+    return id;
+  }
+  const userById = async (id: string) => (await db.query<User>(`SELECT ${USER_COLS} FROM users u WHERE u.id = $1`, [id]))[0];
+
   /* ---------- Sessions ---------- */
   async function openSession(c: Context<Env>, userId: string) {
     const token = newToken();
@@ -155,12 +174,12 @@ export function createApp(deps: Deps) {
     const token = getCookie(c, SESSION_COOKIE);
     if (token) {
       const rows = await db.query<User & { last_seen_at: Date | null }>(
-        `SELECT u.id, u.email, u.name, s.last_seen_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = $1 AND s.expires_at > $2`,
+        `SELECT ${USER_COLS}, s.last_seen_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = $1 AND s.expires_at > $2`,
         [sha256(token), now()],
       );
       const r = rows[0];
       if (r) {
-        c.set('user', { id: r.id, email: r.email, name: r.name });
+        c.set('user', { id: r.id, email: r.email, name: r.name, company: r.company || (await newCompany(r.id)), role: r.company ? r.role : 'admin' });
         if (!r.last_seen_at || now().getTime() - new Date(r.last_seen_at).getTime() > 15 * 60_000)
           await db.query('UPDATE sessions SET last_seen_at = $2 WHERE token_hash = $1', [sha256(token), now()]);
       }
@@ -291,9 +310,9 @@ export function createApp(deps: Deps) {
     const u = (await db.query<{ id: string }>('INSERT INTO users (email, password_hash, name, password_changed_at) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING RETURNING id', [email, p.password_hash, p.name, now()]))[0];
     await db.query('DELETE FROM pending_signups WHERE email = $1', [email]);
     if (!u) return c.json({ error: 'compte déjà créé : connectez-vous' }, 409);
-    await db.query('INSERT INTO settings (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [u.id]);
+    const company = await newCompany(u.id);
     await openSession(c, u.id);
-    return c.json({ user: { id: u.id, email, name: p.name } });
+    return c.json({ user: { id: u.id, email, name: p.name, company, role: 'admin' } });
   });
 
   /** Étape intermédiaire (connexion ou réinitialisation) : un jeton d'étape + un code envoyé. */
@@ -348,7 +367,7 @@ export function createApp(deps: Deps) {
     const r = await checkChallenge(String(body.second ?? ''), String(body.code ?? ''), 'connexion');
     if ('error' in r) return c.json({ error: r.error }, 400);
     await openSession(c, r.userId);
-    const u = (await db.query<User>('SELECT id, email, name FROM users WHERE id = $1', [r.userId]))[0];
+    const u = (await db.query<User>(`SELECT ${USER_COLS} FROM users u WHERE u.id = $1`, [r.userId]))[0];
     return c.json({ user: u });
   });
 
@@ -384,7 +403,7 @@ export function createApp(deps: Deps) {
     await db.query('UPDATE users SET password_hash = $2, password_changed_at = $3 WHERE id = $1', [r.userId, await hashPassword(password), now()]);
     await db.query('DELETE FROM sessions WHERE user_id = $1', [r.userId]);
     await openSession(c, r.userId);
-    const u = (await db.query<User>('SELECT id, email, name FROM users WHERE id = $1', [r.userId]))[0];
+    const u = (await db.query<User>(`SELECT ${USER_COLS} FROM users u WHERE u.id = $1`, [r.userId]))[0];
     return c.json({ user: u });
   });
 
@@ -415,16 +434,198 @@ export function createApp(deps: Deps) {
     return c.json({ ok: true });
   });
 
-  /* ---------- Réglages et connexion Interfast ---------- */
-  type SettingsRow = ArtisanSettings & { mcp_url: string; mcp_key_enc: string | null; mcp_key_hint: string; voice_reply: boolean };
+  /* ---------- Équipe : plusieurs utilisateurs par entreprise ---------- */
+  /*
+   * L'entreprise partage Interfast, les réglages et la mémoire ; chacun garde ses
+   * séances, ses imports, ses clés vocales. Un administrateur invite par e-mail
+   * (lien à usage unique, 7 jours, SHA-256 en base), change les rôles, retire.
+   * ⚠️ Toujours au moins UN administrateur. Un membre retiré repart dans une
+   * entreprise vide, SANS ses séances ni ses imports (ils contiennent les
+   * données de l'ancienne entreprise) ; la mémoire qu'il a écrite reste à l'équipe.
+   */
+  const INVITE_DAYS = 7;
+  const adminOnly = (c: Context<Env>) => {
+    const u = c.get('user');
+    if (!u) return { error: unauthorized(c) };
+    if (u.role !== 'admin') return { error: c.json({ error: 'réservé aux administrateurs de l’entreprise' }, 403) };
+    return { u };
+  };
+  const companyName = async (companyId: string) => (await db.query<{ company: string }>('SELECT company FROM settings WHERE company_id = $1', [companyId]))[0]?.company ?? '';
+  const adminCount = async (companyId: string) => (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM users WHERE company_id = $1 AND role = 'admin'`, [companyId]))[0]!.n;
 
-  async function loadSettings(userId: string): Promise<SettingsRow> {
-    await db.query('INSERT INTO settings (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [userId]);
-    const r = (await db.query<SettingsRow>('SELECT * FROM settings WHERE user_id = $1', [userId]))[0]!;
+  app.get('/api/team', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const members = await db.query<{ id: string; name: string; email: string; role: Role; created_at: Date; last_seen: Date | null }>(
+      `SELECT u.id, u.name, u.email, u.role, u.created_at, (SELECT max(last_seen_at) FROM sessions s WHERE s.user_id = u.id) AS last_seen
+         FROM users u WHERE u.company_id = $1 ORDER BY u.role, u.name, u.email`,
+      [u.company],
+    );
+    const invitations =
+      u.role === 'admin'
+        ? await db.query(`SELECT id, email, role, created_at, expires_at FROM invitations WHERE company_id = $1 AND accepted_at IS NULL AND expires_at > $2 ORDER BY created_at DESC`, [u.company, now()])
+        : [];
+    return c.json({ company: await companyName(u.company), role: u.role, me: u.id, members: members.map((m) => ({ ...m, me: m.id === u.id })), invitations });
+  });
+
+  app.post('/api/team/invitations', async (c) => {
+    const { u, error } = adminOnly(c);
+    if (!u) return error;
+    const b = await readJson<{ email: string; role: string }>(c);
+    const email = normalizeEmail(String(b.email ?? ''));
+    const role: Role = b.role === 'admin' ? 'admin' : 'membre';
+    if (!isEmail(email)) return c.json({ error: 'adresse e-mail invalide' }, 400);
+    if (overRate(`invite:${u.company}`, 20, 3600_000)) return c.json({ error: 'trop d’invitations en une heure, patientez' }, 429);
+    const already = await db.query('SELECT 1 FROM users WHERE email = $1 AND company_id = $2', [email, u.company]);
+    if (already.length) return c.json({ error: 'cette personne fait déjà partie de l’équipe' }, 409);
+    // Une invitation en cours pour la même adresse est remplacée (nouveau lien, l'ancien ne marche plus).
+    await db.query('DELETE FROM invitations WHERE company_id = $1 AND email = $2 AND accepted_at IS NULL', [u.company, email]);
+    const token = newToken();
+    const expires = new Date(now().getTime() + INVITE_DAYS * 86_400_000);
+    const row = (
+      await db.query<{ id: string }>('INSERT INTO invitations (company_id, email, role, token_hash, invited_by, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id', [
+        u.company,
+        email,
+        role,
+        sha256(token),
+        u.id,
+        now(),
+        expires,
+      ])
+    )[0]!;
+    const link = `${origin}/#/rejoindre/${token}`;
+    if (!mailer.enabled) console.warn(`[invitation] e-mail non configuré — lien pour ${email} : ${link}`);
+    else {
+      try {
+        await mailer.send({ to: email, ...inviteMail({ link, company: await companyName(u.company), inviter: u.name || u.email, days: INVITE_DAYS }) });
+      } catch (e) {
+        await db.query('DELETE FROM invitations WHERE id = $1', [row.id]);
+        console.error('invitation :', (e as Error).message);
+        return c.json({ error: 'l’e-mail d’invitation n’a pas pu partir, réessayez' }, 502);
+      }
+    }
+    return c.json({ invitation: { id: row.id, email, role, expires_at: expires } });
+  });
+
+  app.delete('/api/team/invitations/:id', async (c) => {
+    const { u, error } = adminOnly(c);
+    if (!u) return error;
+    const id = c.req.param('id');
+    if (!isUuid(id)) return c.json({ error: 'introuvable' }, 404);
+    await db.query('DELETE FROM invitations WHERE id = $1 AND company_id = $2 AND accepted_at IS NULL', [id, u.company]);
+    return c.json({ ok: true });
+  });
+
+  app.patch('/api/team/members/:id', async (c) => {
+    const { u, error } = adminOnly(c);
+    if (!u) return error;
+    const id = c.req.param('id');
+    const role = (await readJson<{ role: string }>(c)).role;
+    if (!isUuid(id) || !ROLES.includes(role as Role)) return c.json({ error: 'demande invalide' }, 400);
+    const m = (await db.query<{ role: Role }>('SELECT role FROM users WHERE id = $1 AND company_id = $2', [id, u.company]))[0];
+    if (!m) return c.json({ error: 'introuvable' }, 404);
+    if (m.role === 'admin' && role !== 'admin' && (await adminCount(u.company)) <= 1) return c.json({ error: 'il faut au moins un administrateur' }, 409);
+    await db.query('UPDATE users SET role = $3 WHERE id = $1 AND company_id = $2', [id, u.company, role]);
+    return c.json({ ok: true });
+  });
+
+  /** Retirer un membre (administrateur), ou quitter l'équipe soi-même. */
+  app.delete('/api/team/members/:id', async (c) => {
+    const u = c.get('user');
+    if (!u) return unauthorized(c);
+    const id = c.req.param('id');
+    if (!isUuid(id)) return c.json({ error: 'introuvable' }, 404);
+    if (id !== u.id && u.role !== 'admin') return c.json({ error: 'réservé aux administrateurs de l’entreprise' }, 403);
+    const m = (await db.query<{ role: Role }>('SELECT role FROM users WHERE id = $1 AND company_id = $2', [id, u.company]))[0];
+    if (!m) return c.json({ error: 'introuvable' }, 404);
+    const members = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM users WHERE company_id = $1', [u.company]))[0]!.n;
+    if (members <= 1) return c.json({ error: 'vous êtes seul dans l’entreprise' }, 409);
+    if (m.role === 'admin' && (await adminCount(u.company)) <= 1) return c.json({ error: 'il faut au moins un administrateur : nommez-en un autre d’abord' }, 409);
+    // Ses séances et imports contiennent les données de l'entreprise : ils ne le suivent pas.
+    await db.query('DELETE FROM conversations WHERE user_id = $1', [id]);
+    await db.query('DELETE FROM imports WHERE user_id = $1', [id]);
+    await db.query('DELETE FROM voice_tokens WHERE user_id = $1', [id]);
+    await db.query('DELETE FROM sessions WHERE user_id = $1', [id]);
+    await newCompany(id);
+    if (id === u.id) deleteCookie(c, SESSION_COOKIE, { path: '/' });
+    return c.json({ ok: true });
+  });
+
+  /** L'invitation, vue depuis le lien (sans session) : pour quelle adresse, quelle entreprise. */
+  const findInvite = async (token: string) => {
+    if (token.length < 20 || token.length > 200) return null;
+    return (
+      (
+        await db.query<{ id: string; company_id: string; email: string; role: Role; invited_by: string | null }>(
+          'SELECT id, company_id, email, role, invited_by FROM invitations WHERE token_hash = $1 AND accepted_at IS NULL AND expires_at > $2',
+          [sha256(token), now()],
+        )
+      )[0] ?? null
+    );
+  };
+
+  app.get('/api/team/join/:token', async (c) => {
+    if (overRate(`join:${clientIp(c)}`, 60, 3600_000)) return c.json({ error: 'trop de demandes, réessayez plus tard' }, 429);
+    const inv = await findInvite(c.req.param('token'));
+    if (!inv) return c.json({ error: 'invitation inconnue, déjà utilisée ou expirée : demandez-en une nouvelle' }, 404);
+    const inviter = inv.invited_by ? await userById(inv.invited_by) : undefined;
+    const exists = (await db.query('SELECT 1 FROM users WHERE email = $1', [inv.email])).length > 0;
+    return c.json({ email: inv.email, role: inv.role, company: await companyName(inv.company_id), inviter: inviter?.name || inviter?.email || '', account: exists });
+  });
+
+  /**
+   * Accepter : sans compte, on le crée ici (le lien reçu prouve l'adresse) ; avec
+   * un compte, il faut être connecté SUR CETTE ADRESSE. Quitter son entreprise
+   * d'avant n'est possible que si l'on y était seul (elle est alors supprimée).
+   */
+  app.post('/api/team/join', async (c) => {
+    if (overRate(`join:${clientIp(c)}`, 60, 3600_000)) return c.json({ error: 'trop de demandes, réessayez plus tard' }, 429);
+    const b = await readJson<{ token: string; name: string; password: string }>(c);
+    const inv = await findInvite(String(b.token ?? ''));
+    if (!inv) return c.json({ error: 'invitation inconnue, déjà utilisée ou expirée : demandez-en une nouvelle' }, 404);
+    const me = c.get('user');
+    const existing = (await db.query<{ id: string }>('SELECT id FROM users WHERE email = $1', [inv.email]))[0];
+    let userId: string;
+    if (existing) {
+      if (!me) return c.json({ error: 'connectez-vous d’abord avec cette adresse', login: true }, 401);
+      if (me.id !== existing.id) return c.json({ error: `cette invitation est pour ${inv.email} : connectez-vous avec cette adresse` }, 403);
+      if (me.company === inv.company_id) return c.json({ error: 'vous faites déjà partie de cette équipe' }, 409);
+      const others = (await db.query<{ n: number }>('SELECT count(*)::int AS n FROM users WHERE company_id = $1 AND id <> $2', [me.company, me.id]))[0]!.n;
+      if (others > 0) return c.json({ error: 'vous faites partie d’une autre équipe : quittez-la d’abord (Paramètres → Équipe)' }, 409);
+      userId = me.id;
+      const old = me.company;
+      await db.query('UPDATE users SET company_id = $2, role = $3 WHERE id = $1', [userId, inv.company_id, inv.role]);
+      // L'entreprise d'avant n'avait que lui : elle part, avec ses réglages et sa mémoire.
+      await db.query('DELETE FROM companies WHERE id = $1', [old]);
+    } else {
+      const password = String(b.password ?? '');
+      if (password.length < PASSWORD_MIN || password.length > PASSWORD_MAX) return c.json({ error: `mot de passe de ${PASSWORD_MIN} caractères au moins` }, 400);
+      const r = (
+        await db.query<{ id: string }>(
+          'INSERT INTO users (email, password_hash, name, password_changed_at, company_id, role, voice_reply) VALUES ($1, $2, $3, $4, $5, $6, false) ON CONFLICT (email) DO NOTHING RETURNING id',
+          [inv.email, await hashPassword(password), str(b.name, 80), now(), inv.company_id, inv.role],
+        )
+      )[0];
+      if (!r) return c.json({ error: 'compte déjà créé : connectez-vous' }, 409);
+      userId = r.id;
+    }
+    await db.query('UPDATE invitations SET accepted_at = $2 WHERE id = $1', [inv.id, now()]);
+    if (!existing) await openSession(c, userId);
+    return c.json({ user: await userById(userId) });
+  });
+
+  /* ---------- Réglages et connexion Interfast ---------- */
+  type SettingsRow = ArtisanSettings & { mcp_url: string; mcp_key_enc: string | null; mcp_key_hint: string };
+
+  /** Réglages de l'ENTREPRISE de l'utilisateur (partagés par l'équipe). */
+  async function loadSettings(u: User): Promise<SettingsRow> {
+    await db.query('INSERT INTO settings (user_id, company_id) VALUES ($1, $2) ON CONFLICT (company_id) DO NOTHING', [u.id, u.company]);
+    const r = (await db.query<SettingsRow>('SELECT * FROM settings WHERE company_id = $1', [u.company]))[0]!;
     return { ...r, hourly_rate: toNum(r.hourly_rate), vat_rate: toNum(r.vat_rate), margin_pct: toNum(r.margin_pct), travel_fee: toNum(r.travel_fee), validity_days: toNum(r.validity_days) };
   }
 
-  const publicSettings = (s: SettingsRow) => ({
+  const voiceReplyOf = async (u: User) => (await db.query<{ v: boolean | null }>('SELECT voice_reply AS v FROM users WHERE id = $1', [u.id]))[0]?.v ?? false;
+  const publicSettings = (s: SettingsRow, voice_reply: boolean) => ({
     company: s.company,
     trade: s.trade,
     hourly_rate: s.hourly_rate,
@@ -433,7 +634,7 @@ export function createApp(deps: Deps) {
     travel_fee: s.travel_fee,
     validity_days: s.validity_days,
     notes: s.notes,
-    voice_reply: s.voice_reply,
+    voice_reply,
     mcp: { url: s.mcp_url, keyHint: s.mcp_key_hint, configured: !!s.mcp_url },
   });
 
@@ -443,9 +644,10 @@ export function createApp(deps: Deps) {
     return deps.mcpFactory(s.mcp_url, key);
   }
 
-  async function toolsFor(userId: string, s: SettingsRow, mcp: McpClient | null, fresh = false): Promise<McpTool[]> {
+  async function toolsFor(_userId: string, s: SettingsRow, mcp: McpClient | null, fresh = false): Promise<McpTool[]> {
     if (!mcp) return [];
-    const k = `${userId}|${s.mcp_url}|${s.mcp_key_hint}`;
+    // Par serveur et par clé : une équipe partage la même liste.
+    const k = `${s.mcp_url}|${s.mcp_key_hint}`;
     const hit = toolsCache.get(k);
     if (!fresh && hit && now().getTime() - hit.at < TOOLS_TTL_MS) return hit.tools;
     const tools = await mcp.listTools();
@@ -456,66 +658,72 @@ export function createApp(deps: Deps) {
   app.get('/api/settings', async (c) => {
     const u = c.get('user');
     if (!u) return unauthorized(c);
-    return c.json({ settings: publicSettings(await loadSettings(u.id)), name: u.name });
+    return c.json({ settings: publicSettings(await loadSettings(u), await voiceReplyOf(u)), name: u.name, role: u.role });
   });
+
+  /** Les réglages de l'entreprise (dont Interfast) : administrateurs seulement. Nom et lecture à voix haute : chacun. */
+  const COMPANY_KEYS = ['company', 'trade', 'hourly_rate', 'vat_rate', 'margin_pct', 'travel_fee', 'validity_days', 'notes', 'mcp_url', 'mcp_key', 'mcp_key_clear'];
 
   app.put('/api/settings', async (c) => {
     const u = c.get('user');
     if (!u) return unauthorized(c);
     const b = await readJson<Record<string, unknown>>(c);
-    const cur = await loadSettings(u.id);
-    let mcpUrl = cur.mcp_url;
-    if (typeof b.mcp_url === 'string') {
-      if (!b.mcp_url.trim()) mcpUrl = '';
-      else {
-        const v = validMcpUrl(b.mcp_url);
-        if (!v) return c.json({ error: 'URL du serveur MCP invalide : une adresse https publique est attendue' }, 400);
-        mcpUrl = v;
-      }
-    }
-    let keyEnc = cur.mcp_key_enc;
-    let keyHint = cur.mcp_key_hint;
-    if (b.mcp_key_clear === true) {
-      keyEnc = null;
-      keyHint = '';
-    } else if (typeof b.mcp_key === 'string' && b.mcp_key.trim()) {
-      const k = b.mcp_key.trim().slice(0, 500);
-      keyEnc = encrypt(cfg.secretKey, k);
-      keyHint = hint(k);
-    }
-    // Autre serveur Interfast : les appels mémorisés pour le tableau de bord ne valent plus.
-    if (mcpUrl !== cur.mcp_url) await db.query('UPDATE settings SET overview_recipe = NULL, planning_recipe = NULL WHERE user_id = $1', [u.id]);
+    if (u.role !== 'admin' && COMPANY_KEYS.some((k) => k in b)) return c.json({ error: 'réservé aux administrateurs de l’entreprise' }, 403);
     const name = typeof b.name === 'string' ? str(b.name, 80) : u.name;
     await db.query('UPDATE users SET name = $2 WHERE id = $1', [u.id, name]);
-    const pick = (k: string, cur: number | null) => (k in b ? num(b[k]) : cur);
-    await db.query(
-      `UPDATE settings SET company = $2, trade = $3, hourly_rate = $4, vat_rate = $5, margin_pct = $6, travel_fee = $7, validity_days = $8, notes = $9,
-         mcp_url = $10, mcp_key_enc = $11, mcp_key_hint = $12, voice_reply = $13, updated_at = $14 WHERE user_id = $1`,
-      [
-        u.id,
-        typeof b.company === 'string' ? str(b.company, 120) : cur.company,
-        typeof b.trade === 'string' ? str(b.trade, 80) : cur.trade,
-        pick('hourly_rate', cur.hourly_rate),
-        pick('vat_rate', cur.vat_rate),
-        pick('margin_pct', cur.margin_pct),
-        pick('travel_fee', cur.travel_fee),
-        'validity_days' in b ? (num(b.validity_days) === null ? null : Math.round(num(b.validity_days)!)) : cur.validity_days,
-        typeof b.notes === 'string' ? str(b.notes, 2000) : cur.notes,
-        mcpUrl,
-        keyEnc,
-        keyHint,
-        typeof b.voice_reply === 'boolean' ? b.voice_reply : cur.voice_reply,
-        now(),
-      ],
-    );
-    return c.json({ settings: publicSettings(await loadSettings(u.id)), name });
+    if (typeof b.voice_reply === 'boolean') await db.query('UPDATE users SET voice_reply = $2 WHERE id = $1', [u.id, b.voice_reply]);
+    const cur = await loadSettings(u);
+    if (u.role === 'admin' && COMPANY_KEYS.some((k) => k in b)) {
+      let mcpUrl = cur.mcp_url;
+      if (typeof b.mcp_url === 'string') {
+        if (!b.mcp_url.trim()) mcpUrl = '';
+        else {
+          const v = validMcpUrl(b.mcp_url);
+          if (!v) return c.json({ error: 'URL du serveur MCP invalide : une adresse https publique est attendue' }, 400);
+          mcpUrl = v;
+        }
+      }
+      let keyEnc = cur.mcp_key_enc;
+      let keyHint = cur.mcp_key_hint;
+      if (b.mcp_key_clear === true) {
+        keyEnc = null;
+        keyHint = '';
+      } else if (typeof b.mcp_key === 'string' && b.mcp_key.trim()) {
+        const k = b.mcp_key.trim().slice(0, 500);
+        keyEnc = encrypt(cfg.secretKey, k);
+        keyHint = hint(k);
+      }
+      // Autre serveur Interfast : les appels mémorisés pour le tableau de bord et le planning ne valent plus.
+      if (mcpUrl !== cur.mcp_url) await db.query('UPDATE settings SET overview_recipe = NULL, planning_recipe = NULL WHERE company_id = $1', [u.company]);
+      const pick = (k: string, v: number | null) => (k in b ? num(b[k]) : v);
+      await db.query(
+        `UPDATE settings SET company = $2, trade = $3, hourly_rate = $4, vat_rate = $5, margin_pct = $6, travel_fee = $7, validity_days = $8, notes = $9,
+           mcp_url = $10, mcp_key_enc = $11, mcp_key_hint = $12, updated_at = $13 WHERE company_id = $1`,
+        [
+          u.company,
+          typeof b.company === 'string' ? str(b.company, 120) : cur.company,
+          typeof b.trade === 'string' ? str(b.trade, 80) : cur.trade,
+          pick('hourly_rate', cur.hourly_rate),
+          pick('vat_rate', cur.vat_rate),
+          pick('margin_pct', cur.margin_pct),
+          pick('travel_fee', cur.travel_fee),
+          'validity_days' in b ? (num(b.validity_days) === null ? null : Math.round(num(b.validity_days)!)) : cur.validity_days,
+          typeof b.notes === 'string' ? str(b.notes, 2000) : cur.notes,
+          mcpUrl,
+          keyEnc,
+          keyHint,
+          now(),
+        ],
+      );
+    }
+    return c.json({ settings: publicSettings(await loadSettings(u), await voiceReplyOf(u)), name, role: u.role });
   });
 
   app.post('/api/settings/test', async (c) => {
     const u = c.get('user');
     if (!u) return unauthorized(c);
     if (overRate(`mcptest:${u.id}`, 20, 3600_000)) return c.json({ error: 'trop d’essais, patientez' }, 429);
-    const s = await loadSettings(u.id);
+    const s = await loadSettings(u);
     const mcp = mcpFor(s);
     if (!mcp) return c.json({ ok: false, error: 'renseignez d’abord l’URL du serveur MCP' });
     if (s.mcp_key_enc && decrypt(cfg.secretKey, s.mcp_key_enc) === null) return c.json({ ok: false, error: 'clé illisible (clé de chiffrement du serveur changée) : ressaisissez-la' });
@@ -531,7 +739,7 @@ export function createApp(deps: Deps) {
   app.get('/api/rex', async (c) => {
     const u = c.get('user');
     if (!u) return unauthorized(c);
-    const rows = await db.query('SELECT id, kind, content, tags, uses, created_at FROM rex WHERE user_id = $1 ORDER BY created_at DESC LIMIT 500', [u.id]);
+    const rows = await db.query('SELECT id, kind, content, tags, uses, created_at FROM rex WHERE company_id = $1 ORDER BY created_at DESC LIMIT 500', [u.company]);
     return c.json({ rex: rows });
   });
 
@@ -542,7 +750,7 @@ export function createApp(deps: Deps) {
     const kind = REX_KINDS.includes(b.kind as (typeof REX_KINDS)[number]) ? b.kind! : 'preference';
     const content = str(b.content, 600);
     if (!content) return c.json({ error: 'contenu vide' }, 400);
-    const r = (await db.query('INSERT INTO rex (user_id, kind, content) VALUES ($1, $2, $3) RETURNING id, kind, content, tags, uses, created_at', [u.id, kind, content]))[0];
+    const r = (await db.query('INSERT INTO rex (user_id, company_id, kind, content) VALUES ($1, $2, $3, $4) RETURNING id, kind, content, tags, uses, created_at', [u.id, u.company, kind, content]))[0];
     return c.json({ rex: r });
   });
 
@@ -553,7 +761,7 @@ export function createApp(deps: Deps) {
     if (!isUuid(id)) return c.json({ error: 'introuvable' }, 404);
     const content = str((await readJson<{ content: string }>(c)).content, 600);
     if (!content) return c.json({ error: 'contenu vide' }, 400);
-    const r = await db.query('UPDATE rex SET content = $3 WHERE id = $1 AND user_id = $2 RETURNING id', [id, u.id, content]);
+    const r = await db.query('UPDATE rex SET content = $3 WHERE id = $1 AND company_id = $2 RETURNING id', [id, u.company, content]);
     return r.length ? c.json({ ok: true }) : c.json({ error: 'introuvable' }, 404);
   });
 
@@ -562,7 +770,7 @@ export function createApp(deps: Deps) {
     if (!u) return unauthorized(c);
     const id = c.req.param('id');
     if (!isUuid(id)) return c.json({ error: 'introuvable' }, 404);
-    await db.query('DELETE FROM rex WHERE id = $1 AND user_id = $2', [id, u.id]);
+    await db.query('DELETE FROM rex WHERE id = $1 AND company_id = $2', [id, u.company]);
     return c.json({ ok: true });
   });
 
@@ -594,11 +802,11 @@ export function createApp(deps: Deps) {
 
   /** Nouvelle séance : son contexte (réglages, REX, dernières séances) est FIGÉ ici. */
   async function createConversation(u: User, kind: 'devis' | 'voix'): Promise<string> {
-    const s = await loadSettings(u.id);
+    const s = await loadSettings(u);
     const rex = await db.query<RexItem>(
-      `(SELECT kind, content, created_at FROM rex WHERE user_id = $1 AND kind <> 'avis' ORDER BY uses DESC, created_at DESC LIMIT ${REX_IN_CONTEXT})
-       UNION ALL (SELECT kind, content, created_at FROM rex WHERE user_id = $1 AND kind = 'avis' ORDER BY created_at DESC LIMIT 8)`,
-      [u.id],
+      `(SELECT kind, content, created_at FROM rex WHERE company_id = $1 AND kind <> 'avis' ORDER BY uses DESC, created_at DESC LIMIT ${REX_IN_CONTEXT})
+       UNION ALL (SELECT kind, content, created_at FROM rex WHERE company_id = $1 AND kind = 'avis' ORDER BY created_at DESC LIMIT 8)`,
+      [u.company],
     );
     const past = await db.query<PastSession>(`SELECT title, status, outcome, feedback, rating FROM conversations WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 10`, [u.id]);
     const context = sessionContext({ name: u.name, now: now(), settings: s, rex, past });
@@ -657,7 +865,7 @@ export function createApp(deps: Deps) {
       feedback,
       now(),
     ]);
-    if (feedback) await db.query('INSERT INTO rex (user_id, kind, content, source_conversation) VALUES ($1, $2, $3, $4)', [u.id, 'avis', feedback, conv.id]);
+    if (feedback) await db.query('INSERT INTO rex (user_id, company_id, kind, content, source_conversation) VALUES ($1, $2, $3, $4, $5)', [u.id, u.company, 'avis', feedback, conv.id]);
     return c.json({ ok: true });
   });
 
@@ -668,7 +876,7 @@ export function createApp(deps: Deps) {
   async function executeTurn(u: User, conv: ConvRow, text: string, answers: Answer[], onStatus: (t: string) => void, opts: { effort?: 'low' | 'medium' | 'high' } = {}) {
     const anthropic = cfg.anthropic;
     if (!llm || !anthropic) throw new Error('assistante non configurée');
-    const s = await loadSettings(u.id);
+    const s = await loadSettings(u);
     const mcp = mcpFor(s);
     let mcpTools: McpTool[] = [];
     let mcpNote = '';
@@ -691,14 +899,14 @@ export function createApp(deps: Deps) {
         pending: conv.pending,
         onStatus,
         remember: async (kind, content, tags) => {
-          await db.query('INSERT INTO rex (user_id, kind, content, tags, source_conversation) VALUES ($1, $2, $3, $4, $5)', [u.id, REX_KINDS.includes(kind as never) ? kind : 'decision', content, tags, conv.id]);
+          await db.query('INSERT INTO rex (user_id, company_id, kind, content, tags, source_conversation) VALUES ($1, $6, $2, $3, $4, $5)', [u.id, REX_KINDS.includes(kind as never) ? kind : 'decision', content, tags, conv.id, u.company]);
         },
         searchRex: async (q) => {
           const words = q.toLowerCase().split(/[^a-z0-9à-ÿ]+/i).filter((w) => w.length >= 3).slice(0, 6);
           if (!words.length) return [];
           const like = words.map((_, i) => `(lower(content) LIKE $${i + 2} OR lower(tags) LIKE $${i + 2})`).join(' OR ');
-          const rows = await db.query<{ id: string; kind: string; content: string; created_at: Date }>(`SELECT id, kind, content, created_at FROM rex WHERE user_id = $1 AND (${like}) ORDER BY created_at DESC LIMIT 15`, [
-            u.id,
+          const rows = await db.query<{ id: string; kind: string; content: string; created_at: Date }>(`SELECT id, kind, content, created_at FROM rex WHERE company_id = $1 AND (${like}) ORDER BY created_at DESC LIMIT 15`, [
+            u.company,
             ...words.map((w) => `%${w.replace(/[%_\\]/g, '')}%`),
           ]);
           if (rows.length) await db.query('UPDATE rex SET uses = uses + 1, last_used_at = $2 WHERE id = ANY($1::uuid[])', [rows.map((r) => r.id), now()]);
@@ -809,7 +1017,7 @@ export function createApp(deps: Deps) {
     if (overRate(`voix-ip:${clientIp(c)}`, 120, 3600_000)) return c.json({ reponse: 'Trop de demandes, réessayez plus tard.', erreur: 'debit' }, 429);
     const row = token.length >= 20 ? (await db.query<{ id: string; user_id: string }>('SELECT id, user_id FROM voice_tokens WHERE token_hash = $1', [sha256(token)]))[0] : undefined;
     if (!row) return c.json({ reponse: 'Clé vocale inconnue. Créez-en une dans Envo, Paramètres, Siri.', erreur: 'cle' }, 401);
-    const u = (await db.query<User>('SELECT id, email, name FROM users WHERE id = $1', [row.user_id]))[0];
+    const u = await userById(row.user_id);
     if (!u) return c.json({ reponse: 'Compte introuvable.', erreur: 'cle' }, 401);
     await db.query('UPDATE voice_tokens SET last_used_at = $2 WHERE id = $1', [row.id, now()]);
     if (!llm || !cfg.anthropic) return c.json({ reponse: 'L’assistante n’est pas activée sur le serveur.', erreur: 'assistante' }, 503);
@@ -912,18 +1120,18 @@ export function createApp(deps: Deps) {
   app.get('/api/interfast/status', async (c) => {
     const u = c.get('user');
     if (!u) return unauthorized(c);
-    const s = await loadSettings(u.id);
+    const s = await loadSettings(u);
     const week = new Date(now().getTime() - 7 * 86_400_000);
     const stats = (
       await db.query<{ calls: number; errors: number; avg_ms: number | null; last_ok: Date | null; last_error: Date | null }>(
         `SELECT count(*)::int AS calls, count(*) FILTER (WHERE NOT ok)::int AS errors, round(avg(ms))::int AS avg_ms,
                 max(created_at) FILTER (WHERE ok) AS last_ok, max(created_at) FILTER (WHERE NOT ok) AS last_error
-           FROM tool_log WHERE user_id = $1 AND created_at >= $2`,
-        [u.id, week],
+           FROM tool_log WHERE user_id IN (SELECT id FROM users WHERE company_id = $1) AND created_at >= $2`,
+        [u.company, week],
       )
     )[0]!;
-    const top = await db.query<{ tool: string; n: number }>(`SELECT tool, count(*)::int AS n FROM tool_log WHERE user_id = $1 AND created_at >= $2 GROUP BY tool ORDER BY n DESC LIMIT 5`, [u.id, week]);
-    const last = (await db.query<{ overview_stats: unknown }>('SELECT overview_stats FROM settings WHERE user_id = $1', [u.id]))[0]?.overview_stats ?? null;
+    const top = await db.query<{ tool: string; n: number }>(`SELECT tool, count(*)::int AS n FROM tool_log WHERE user_id IN (SELECT id FROM users WHERE company_id = $1) AND created_at >= $2 GROUP BY tool ORDER BY n DESC LIMIT 5`, [u.company, week]);
+    const last = (await db.query<{ overview_stats: unknown }>('SELECT overview_stats FROM settings WHERE company_id = $1', [u.company]))[0]?.overview_stats ?? null;
     const base = { configured: !!s.mcp_url, host: host(s.mcp_url), keyHint: s.mcp_key_hint, week: { ...stats, top }, lastRead: last };
     const mcp = mcpFor(s);
     if (!mcp) return c.json({ ...base, ok: false, error: 'non configuré' });
@@ -946,15 +1154,15 @@ export function createApp(deps: Deps) {
   app.get('/api/interfast/overview', async (c) => {
     const u = c.get('user');
     if (!u) return unauthorized(c);
-    const s = await loadSettings(u.id);
-    const o = overviews.get(u.id);
+    const s = await loadSettings(u);
+    const o = overviews.get(u.company);
     // Gardé 24 h en mémoire : au-delà de 30 min il est « à rafraîchir » (affiché tout de suite, actualisé derrière).
     const usable = o && o.key === `${s.mcp_url}|${s.mcp_key_hint}` && now().getTime() - o.at < 24 * 3600_000;
     return c.json({
       overview: usable ? o.data : null,
       at: usable ? new Date(o.at) : null,
       stale: !usable || now().getTime() - o.at >= OVERVIEW_TTL_MS,
-      collecting: collecting.has(u.id),
+      collecting: collecting.has(u.company),
       assistant: llm !== null,
     });
   });
@@ -996,8 +1204,8 @@ export function createApp(deps: Deps) {
   app.get('/api/interfast/overview/progress', async (c) => {
     const u = c.get('user');
     if (!u) return unauthorized(c);
-    const j = jobs.get(u.id);
-    const o = overviews.get(u.id);
+    const j = jobs.get(u.company);
+    const o = overviews.get(u.company);
     return c.json({ job: jobView(j) ?? null, overview: j?.state === 'fini' && o ? o.data : null, at: j?.state === 'fini' && o ? new Date(o.at) : null });
   });
 
@@ -1006,16 +1214,16 @@ export function createApp(deps: Deps) {
     const u = c.get('user');
     if (!u) return unauthorized(c);
     if (!llm || !cfg.anthropic) return c.json({ error: 'assistante non configurée sur le serveur (clé Anthropic absente)' }, 503);
-    const s = await loadSettings(u.id);
+    const s = await loadSettings(u);
     const mcp = mcpFor(s);
     if (!mcp) return c.json({ error: 'Interfast n’est pas connecté' }, 400);
-    if (collecting.has(u.id)) return c.json({ job: jobView(jobs.get(u.id)) }, 202);
-    if (overRate(`overview:${u.id}`, 12, 3600_000)) return c.json({ error: 'trop d’actualisations en une heure, patientez' }, 429);
-    collecting.add(u.id);
+    if (collecting.has(u.company)) return c.json({ job: jobView(jobs.get(u.company)) }, 202);
+    if (overRate(`overview:${u.company}`, 12, 3600_000)) return c.json({ error: 'trop d’actualisations en une heure, patientez' }, 429);
+    collecting.add(u.company);
     const anthropic = cfg.anthropic;
-    const prev = (await db.query<{ overview_recipe: RecipeCall[] | null; overview_stats: Stats | null }>('SELECT overview_recipe, overview_stats FROM settings WHERE user_id = $1', [u.id]))[0];
+    const prev = (await db.query<{ overview_recipe: RecipeCall[] | null; overview_stats: Stats | null }>('SELECT overview_recipe, overview_stats FROM settings WHERE company_id = $1', [u.company]))[0];
     const job: Job = { startedAt: Date.now(), state: 'en_cours', phase: 'interfast', calls: [], calcMs: 0, calcSince: null, estimateMs: prev?.overview_stats?.ms ?? null };
-    jobs.set(u.id, job);
+    jobs.set(u.company, job);
 
     void (async () => {
       try {
@@ -1049,13 +1257,13 @@ export function createApp(deps: Deps) {
           },
         });
         const at = now().getTime();
-        overviews.set(u.id, { at, key: `${s.mcp_url}|${s.mcp_key_hint}`, data });
+        overviews.set(u.company, { at, key: `${s.mcp_url}|${s.mcp_key_hint}`, data });
         job.endedAt = Date.now();
         const total = job.endedAt - job.startedAt;
         // Le temps passé à attendre Interfast : appels en parallèle, donc la plus longue de chaque vague ≈ total − calcul.
         const stats: Stats = { ms: total, calcul_ms: job.calcMs, interfast_ms: Math.max(0, total - job.calcMs), calls: job.calls.length, at: new Date(at).toISOString() };
-        await db.query('UPDATE settings SET overview_stats = $2::text::jsonb WHERE user_id = $1', [u.id, JSON.stringify(stats)]);
-        if (recipe.length) await db.query('UPDATE settings SET overview_recipe = $2::text::jsonb WHERE user_id = $1', [u.id, JSON.stringify(recipe)]);
+        await db.query('UPDATE settings SET overview_stats = $2::text::jsonb WHERE company_id = $1', [u.company, JSON.stringify(stats)]);
+        if (recipe.length) await db.query('UPDATE settings SET overview_recipe = $2::text::jsonb WHERE company_id = $1', [u.company, JSON.stringify(recipe)]);
         job.state = 'fini';
       } catch (e) {
         console.error('tableau Interfast :', (e as Error).message);
@@ -1063,7 +1271,7 @@ export function createApp(deps: Deps) {
         job.endedAt = Date.now();
         job.error = e instanceof McpError ? e.message : 'La lecture d’Interfast n’a pas abouti. Réessayez dans un instant.';
       } finally {
-        collecting.delete(u.id);
+        collecting.delete(u.company);
       }
     })();
     return c.json({ job: jobView(job) }, 202);
@@ -1084,18 +1292,18 @@ export function createApp(deps: Deps) {
     const du = mondayOf(d);
     return { du, au: addDays(du, 6) };
   };
-  const forgetPlannings = (userId: string) => {
-    for (const k of plannings.keys()) if (k.startsWith(`${userId}|`)) plannings.delete(k);
+  const forgetPlannings = (companyId: string) => {
+    for (const k of plannings.keys()) if (k.startsWith(`${companyId}|`)) plannings.delete(k);
   };
 
   app.get('/api/planning', async (c) => {
     const u = c.get('user');
     if (!u) return unauthorized(c);
     const { du, au } = weekOf(c.req.query('du'));
-    const s = await loadSettings(u.id);
-    const p = plannings.get(`${u.id}|${du}`);
+    const s = await loadSettings(u);
+    const p = plannings.get(`${u.company}|${du}`);
     const usable = p && p.key === `${s.mcp_url}|${s.mcp_key_hint}` && now().getTime() - p.at < 24 * 3600_000;
-    const j = planJobs.get(u.id);
+    const j = planJobs.get(u.company);
     return c.json({
       du,
       au,
@@ -1113,16 +1321,16 @@ export function createApp(deps: Deps) {
     if (!u) return unauthorized(c);
     if (!llm || !cfg.anthropic) return c.json({ error: 'assistante non configurée sur le serveur (clé Anthropic absente)' }, 503);
     const { du, au } = weekOf((await readJson<{ du: string }>(c)).du);
-    const s = await loadSettings(u.id);
+    const s = await loadSettings(u);
     const mcp = mcpFor(s);
     if (!mcp) return c.json({ error: 'Interfast n’est pas connecté' }, 400);
-    const cur = planJobs.get(u.id);
+    const cur = planJobs.get(u.company);
     if (cur?.state === 'en_cours') return c.json({ job: planJobView(cur) }, 202);
-    if (overRate(`planning:${u.id}`, 30, 3600_000)) return c.json({ error: 'trop de lectures du planning en une heure, patientez' }, 429);
+    if (overRate(`planning:${u.company}`, 30, 3600_000)) return c.json({ error: 'trop de lectures du planning en une heure, patientez' }, 429);
     const anthropic = cfg.anthropic;
     const job: PlanJob = { du, state: 'en_cours', status: 'Lecture d’Interfast…', startedAt: Date.now(), calls: 0 };
-    planJobs.set(u.id, job);
-    const prev = (await db.query<{ planning_recipe: RecipeCall[] | null }>('SELECT planning_recipe FROM settings WHERE user_id = $1', [u.id]))[0];
+    planJobs.set(u.company, job);
+    const prev = (await db.query<{ planning_recipe: RecipeCall[] | null }>('SELECT planning_recipe FROM settings WHERE company_id = $1', [u.company]))[0];
     void (async () => {
       try {
         const tools = await toolsFor(u.id, s, mcp);
@@ -1144,8 +1352,8 @@ export function createApp(deps: Deps) {
           du,
           au,
         );
-        plannings.set(`${u.id}|${du}`, { at: now().getTime(), key: `${s.mcp_url}|${s.mcp_key_hint}`, data: planning });
-        if (recipe.length) await db.query('UPDATE settings SET planning_recipe = $2::text::jsonb WHERE user_id = $1', [u.id, JSON.stringify(recipe)]);
+        plannings.set(`${u.company}|${du}`, { at: now().getTime(), key: `${s.mcp_url}|${s.mcp_key_hint}`, data: planning });
+        if (recipe.length) await db.query('UPDATE settings SET planning_recipe = $2::text::jsonb WHERE company_id = $1', [u.company, JSON.stringify(recipe)]);
         job.state = 'fini';
       } catch (e) {
         console.error('planning Interfast :', (e as Error).message);
@@ -1226,7 +1434,7 @@ export function createApp(deps: Deps) {
     const u = c.get('user');
     if (!u) return unauthorized(c);
     if (!llm || !cfg.anthropic) return c.json({ error: 'assistante non configurée sur le serveur (clé Anthropic absente)' }, 503);
-    const s = await loadSettings(u.id);
+    const s = await loadSettings(u);
     const mcp = mcpFor(s);
     if (!mcp) return c.json({ error: 'Interfast n’est pas connecté' }, 400);
     const b = await readJson<{ nom: string; pdf: string; consignes: string }>(c);
@@ -1279,7 +1487,7 @@ export function createApp(deps: Deps) {
     const lines = r.proposal?.lignes ?? [];
     const picked = [...new Set(Array.isArray(b.lignes) ? b.lignes : [])].filter((i): i is number => Number.isInteger(i) && i >= 0 && i < lines.length && lines[i]!.importable);
     if (!picked.length) return c.json({ error: 'aucune ligne importable cochée' }, 400);
-    const s = await loadSettings(u.id);
+    const s = await loadSettings(u);
     const mcp = mcpFor(s);
     if (!mcp) return c.json({ error: 'Interfast n’est pas connecté' }, 400);
     // Une seule validation : l'état passe de « proposée » à « en cours » en une requête, ou rien.
@@ -1315,7 +1523,7 @@ export function createApp(deps: Deps) {
       const ok = results.filter((x) => x.ok).length;
       const state = ok === picked.length ? 'importee' : ok > 0 ? 'partielle' : 'echec';
       await db.query('UPDATE imports SET state = $3, results = $4::text::jsonb WHERE id = $1 AND user_id = $2', [r.id, u.id, state, JSON.stringify(results)]);
-      forgetPlannings(u.id);
+      forgetPlannings(u.company);
       importStatus.delete(r.id);
     })();
     return c.json({ ok: true }, 202);
@@ -1351,13 +1559,13 @@ export function createApp(deps: Deps) {
         `SELECT count(*) FILTER (WHERE state = 'validee')::int AS validated, count(*) FILTER (WHERE state = 'refusee')::int AS refused FROM actions WHERE user_id = $1 AND created_at >= $2`,
         [u.id, month],
       ),
-      q1<{ n: number }>(`SELECT count(*)::int AS n FROM rex WHERE user_id = $1 AND kind <> 'avis'`, [u.id]),
+      q1<{ n: number }>(`SELECT count(*)::int AS n FROM rex WHERE company_id = $1 AND kind <> 'avis'`, [u.company]),
       q1<{ calls: number; errors: number; avg_ms: number | null }>(
         `SELECT count(*)::int AS calls, count(*) FILTER (WHERE NOT ok)::int AS errors, round(avg(ms))::int AS avg_ms FROM tool_log WHERE user_id = $1 AND created_at >= $2`,
         [u.id, week],
       ),
       db.query(`SELECT id, title, status, outcome, (pending IS NOT NULL) AS waiting, updated_at FROM conversations WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 6`, [u.id]),
-      loadSettings(u.id),
+      loadSettings(u),
     ]);
     return c.json({
       ...counts,

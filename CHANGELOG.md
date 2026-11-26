@@ -1,5 +1,15 @@
 # Journal des versions
 
+## 0.9.0 — 26/11/2026
+
+Plusieurs utilisateurs par entreprise.
+- **Équipe** (Paramètres → Équipe) : un administrateur invite par e-mail (lien valable 7 jours, utilisable une fois), choisit le rôle, retire quelqu’un. Il reste toujours au moins un administrateur.
+- **Partagés par l’équipe** : la connexion Interfast, les réglages de l’entreprise, la mémoire de l’assistante, le tableau de bord et le planning. **À chacun** : ses séances, ses imports, sa clé Siri, la lecture à voix haute.
+- **Rôles** : administrateur (entreprise, Interfast, équipe) ; membre (devis, planning, imports, mémoire) — il voit les réglages sans pouvoir les changer.
+- Page « Rejoindre l’équipe » : sans compte, on le crée sur place ; avec un compte, on se connecte sur la bonne adresse puis on accepte.
+- Un membre retiré (ou qui quitte) perd ses séances et imports (ils contiennent les données de l’entreprise) ; la mémoire qu’il a écrite reste à l’équipe.
+- Comptes existants : chacun devient administrateur de sa propre entreprise, rien n’est perdu.
+
 ## 0.8.0 — 26/11/2026
 
 Planning, import de planning fournisseur, marge.

@@ -5,6 +5,9 @@ export interface User {
   id: string;
   email: string;
   name: string;
+  /** L'entreprise (équipe) : Interfast, réglages et mémoire partagés. */
+  company: string;
+  role: 'admin' | 'membre';
 }
 
 export class ApiError extends Error {

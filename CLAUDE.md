@@ -9,7 +9,8 @@ Guide pour Claude Code sur ce dépôt.
 devis avec l'artisan, à la voix ou au clavier, et le crée dans **Interfast**.
 
 Écrans : écran d'entrée (comptes), **Tableau de bord**, **AssistDevis**,
-**Planning** (0.8.0), **Paramètres**. Version : `version` de `package.json`, affichée sur l'écran
+**Planning** (0.8.0), **Paramètres** (dont **Équipe**, 0.9.0), et la page du
+lien d'invitation (`#/rejoindre/…`). Version : `version` de `package.json`, affichée sur l'écran
 d'entrée et dans Paramètres.
 
 Stack reprise de **Pixo** (demande du propriétaire, 07/11/2026) — voir le
@@ -206,6 +207,26 @@ latérale porte la marque. Un nouvel écran n'a rien à faire : il en hérite.
 en-tête, barre latérale, écran d'entrée) : c'est ce qui permet de voir d'un
 coup d'œil quelle version tourne. Le monter à chaque livraison.
 
+## Équipe : plusieurs utilisateurs par entreprise (0.9.0)
+
+`companies` ; `users.company_id`, `users.role` (`admin` | `membre`). L'ENTREPRISE
+porte : `settings` (clé `company_id`, `user_id` = qui l'a créée), la connexion
+Interfast, le REX (`rex.company_id`), les caches du tableau de bord et du
+planning, les recettes. La PERSONNE garde : séances, imports, clés vocales,
+`users.voice_reply`. `User` (serveur et écran) porte `company` et `role` ;
+⚠️ toute lecture de réglages ou de REX filtre par `u.company`, jamais par
+`u.id` ; séances et imports restent filtrés par `user_id`.
+- Admin seul : réglages de l'entreprise et Interfast (`COMPANY_KEYS` → 403
+  pour un membre), invitations, rôles, retrait. ⚠️ Toujours un admin au moins.
+- Invitation : jeton aléatoire, SHA-256 en base, 7 jours, une fois, lien
+  `#/rejoindre/<jeton>`. Sans compte : création sur place (le lien prouve
+  l'adresse). Avec compte : connecté SUR CETTE ADRESSE, et seulement s'il était
+  seul dans son entreprise (elle est alors supprimée).
+- Retrait / départ : séances, imports, clés vocales et sessions supprimés,
+  nouvelle entreprise vide ; son REX reste à l'équipe.
+- Migration (`db.ts`) : chaque compte existant devient admin de sa propre
+  entreprise (`companies.founder`), réglages et REX rattachés.
+
 ## Comptes et sécurité
 
 Voir `SECURITE.md`. Inscription par code e-mail ; **connexion en deux temps**
@@ -227,7 +248,7 @@ server/crypto.ts   AES-256-GCM des secrets en base
 server/db.ts       schéma (créations idempotentes ; évolutions en ADD COLUMN IF NOT EXISTS)
 server/planning.ts lecture du planning (semaine), recette aux dates repères
 server/planimport.ts  import d'un PDF fournisseur : proposition, nettoyage
-src/screens/       AuthScreen, Dashboard, AssistDevis, Planning (+ ImportPanel), Settings
+src/screens/       AuthScreen, JoinScreen, Dashboard, AssistDevis, Planning (+ ImportPanel), Settings (+ Team)
 src/lib/           api (dont le flux SSE), voice, format (totaux du brouillon)
 tests/server/      l'API sur PGlite avec faux Claude et faux serveur MCP Interfast
 tools/demo-server.ts  démo sur un port (interface + API, /demo = connecté d'office, scénario rejoué par séance) — exclu du déploiement
